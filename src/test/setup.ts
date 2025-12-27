@@ -32,7 +32,7 @@ vi.mock('../db/index', () => ({
   closeDatabase: vi.fn(),
 }));
 
-// Mock localStorage
+// Mock localStorage (only in browser environment)
 const localStorageMock = {
   getItem: vi.fn(),
   setItem: vi.fn(),
@@ -42,15 +42,19 @@ const localStorageMock = {
   key: vi.fn(),
 };
 
-Object.defineProperty(window, 'localStorage', {
-  value: localStorageMock,
-  writable: true,
-});
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'localStorage', {
+    value: localStorageMock,
+    writable: true,
+  });
+}
 
 // Reset mocks between tests
 beforeEach(() => {
   vi.clearAllMocks();
-  localStorageMock.getItem.mockReturnValue(null);
+  if (typeof window !== 'undefined') {
+    localStorageMock.getItem.mockReturnValue(null);
+  }
   // Reset mock database methods
   mockDb.run.mockClear();
   mockDb.exec.mockClear().mockReturnValue([]);

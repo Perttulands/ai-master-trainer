@@ -1,5 +1,5 @@
 import type { Database, SqlJsStatic } from 'sql.js';
-import { CREATE_TABLES_SQL, SCHEMA_VERSION } from './schema';
+import { CREATE_TABLES_SQL, SCHEMA_VERSION, MIGRATIONS } from './schema';
 
 let db: Database | null = null;
 
@@ -35,32 +35,67 @@ export async function initDatabase(): Promise<Database> {
     db = new SQL.Database();
   }
 
-  // Run migrations
-  runMigrations(db);
+  // Apply migrations
+  applyMigrations(db);
+
+  // Save after migrations
+  saveDatabase();
 
   return db;
 }
 
-function runMigrations(database: Database): void {
-  // Create tables if they don't exist
-  database.run(CREATE_TABLES_SQL);
+/**
+ * Apply database migrations to bring schema up to current version.
+ *
+ * For new databases (no schema_version table): Creates all tables fresh.
+ * For existing databases: Applies each pending migration in order.
+ *
+ * @param database - The sql.js Database instance to migrate
+ */
+export function applyMigrations(database: Database): void {
+  // Check if schema_version table exists (indicates existing database)
+  const tableCheck = database.exec(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
+  );
+  const hasSchemaVersion = tableCheck.length > 0 && tableCheck[0].values.length > 0;
 
-  // Check current schema version
+  if (!hasSchemaVersion) {
+    // Fresh database - create all tables with current schema
+    console.log('Training Camp: Creating fresh database at version', SCHEMA_VERSION);
+    database.run(CREATE_TABLES_SQL);
+    database.run('INSERT INTO schema_version (version) VALUES (?)', [SCHEMA_VERSION]);
+    return;
+  }
+
+  // Existing database - check version and apply migrations
   const result = database.exec('SELECT version FROM schema_version LIMIT 1');
   const currentVersion = result.length > 0 ? (result[0].values[0][0] as number) : 0;
 
-  if (currentVersion < SCHEMA_VERSION) {
-    // Run any necessary migrations here
-    // For now, just update the version
-    if (currentVersion === 0) {
-      database.run('INSERT INTO schema_version (version) VALUES (?)', [SCHEMA_VERSION]);
-    } else {
-      database.run('UPDATE schema_version SET version = ?', [SCHEMA_VERSION]);
+  if (currentVersion >= SCHEMA_VERSION) {
+    console.log('Training Camp: Database already at version', currentVersion);
+    return;
+  }
+
+  console.log(`Training Camp: Migrating database from version ${currentVersion} to ${SCHEMA_VERSION}`);
+
+  // Find and apply all pending migrations in order
+  const pendingMigrations = MIGRATIONS
+    .filter(m => m.fromVersion >= currentVersion && m.toVersion <= SCHEMA_VERSION)
+    .sort((a, b) => a.fromVersion - b.fromVersion);
+
+  for (const migration of pendingMigrations) {
+    console.log(`Training Camp: Applying migration ${migration.fromVersion} → ${migration.toVersion}`);
+    try {
+      database.run(migration.sql);
+      // Update version after each successful migration
+      database.run('UPDATE schema_version SET version = ?', [migration.toVersion]);
+    } catch (error) {
+      console.error(`Training Camp: Migration ${migration.fromVersion} → ${migration.toVersion} failed:`, error);
+      throw error;
     }
   }
 
-  // Save after migrations
-  saveDatabase();
+  console.log('Training Camp: Database migration complete');
 }
 
 export function getDatabase(): Database {
