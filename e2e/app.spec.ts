@@ -31,8 +31,9 @@ test.describe('Training Camp', () => {
     // Check header
     await expect(page.locator('text=Training Camp')).toBeVisible();
 
-    // Check for "New Session" button
-    await expect(page.locator('text=New Session')).toBeVisible();
+    // Check for Quick Start and New Training buttons
+    await expect(page.locator('button:has-text("Quick Start")')).toBeVisible();
+    await expect(page.locator('button:has-text("New Training")')).toBeVisible();
 
     // Check for empty state message
     await expect(page.locator('text=No sessions yet')).toBeVisible();
@@ -352,5 +353,368 @@ test.describe('Training Camp', () => {
       // Dropdown should close and selection should update
       await expect(page.locator('text=High-End')).not.toBeVisible();
     }
+  });
+
+  // ============================================================================
+  // Issue-Specific Tests (System Audit Fixes)
+  // ============================================================================
+
+  test('artifact content should not contain test input prompt text', async ({ page }) => {
+    await createSession(page, 'Content Quality Test', 'Create a helpful assistant');
+
+    // Wait for cards to render
+    await page.waitForTimeout(2000);
+
+    // Get all card content texts
+    const cardContents = page.locator('.line-clamp-6');
+    const count = await cardContents.count();
+
+    for (let i = 0; i < count; i++) {
+      const text = await cardContents.nth(i).textContent();
+      // Artifact content should NOT contain the test input prompt
+      expect(text).not.toContain('Please demonstrate your capabilities');
+      expect(text).not.toContain('Provide a complete, high-quality response');
+    }
+  });
+
+  test('flow visualization should have valid connected edges', async ({ page }) => {
+    await createSession(page, 'Flow Edge Test', 'Test flow connections');
+
+    // Click View Agent button
+    const viewAgentButton = page.locator('button[title="View Agent"]').first();
+    await viewAgentButton.click();
+
+    // Wait for modal
+    await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 10000 });
+
+    // Wait for react-flow to render
+    await expect(page.locator('.react-flow')).toBeVisible({ timeout: 5000 });
+
+    // Flow should have edges connecting nodes
+    const edges = page.locator('.react-flow__edge');
+    const edgeCount = await edges.count();
+    expect(edgeCount).toBeGreaterThan(0);
+  });
+
+  test('fullscreen flow view should render content', async ({ page }) => {
+    await createSession(page, 'Fullscreen Flow Test', 'Test fullscreen view');
+
+    // Click View Agent button
+    const viewAgentButton = page.locator('button[title="View Agent"]').first();
+    await viewAgentButton.click();
+
+    // Wait for modal
+    await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 10000 });
+
+    // Wait for react-flow to render
+    await expect(page.locator('.react-flow')).toBeVisible({ timeout: 5000 });
+
+    // Click fullscreen button (Maximize2 icon)
+    const fullscreenButton = page.locator('button[title="Fullscreen"]');
+    if (await fullscreenButton.isVisible()) {
+      await fullscreenButton.click();
+
+      // Fullscreen should have react-flow content
+      await expect(page.locator('.react-flow')).toBeVisible();
+
+      // Should have nodes rendered
+      const nodes = page.locator('.react-flow__node');
+      const nodeCount = await nodes.count();
+      expect(nodeCount).toBeGreaterThan(0);
+
+      // Exit fullscreen
+      await page.click('text=Exit Fullscreen');
+    }
+  });
+
+  test('mock mode indicator is shown when LLM is not connected', async ({ page }) => {
+    await page.goto('http://localhost:5173');
+
+    // Check for either "LLM Connected" or "Mock Mode" status
+    const statusText = await page.locator('text=/LLM Connected|Mock Mode/').textContent();
+    expect(statusText).toBeTruthy();
+
+    // If in mock mode, artifacts should contain the mock mode notice
+    if (statusText?.includes('Mock Mode')) {
+      await createSession(page, 'Mock Mode Test', 'Test mock content');
+
+      // Wait for cards to render
+      await page.waitForTimeout(2000);
+
+      // Expand a card to see full content
+      const expandButton = page.locator('button[title="Expand"]').first();
+      await expandButton.click();
+
+      // Check for mock mode notice in the modal
+      await expect(page.locator('[role="dialog"]')).toBeVisible();
+      const modalContent = await page.locator('[role="dialog"]').textContent();
+      expect(modalContent).toContain('Mock Mode');
+    }
+  });
+
+  test('each lineage card shows unique strategy-based content', async ({ page }) => {
+    await createSession(page, 'Strategy Diversity Test', 'Create a versatile assistant');
+
+    // Wait for cards to render
+    await page.waitForTimeout(2000);
+
+    // Get all card content texts
+    const cardContents = page.locator('.line-clamp-6');
+    const count = await cardContents.count();
+    const texts: string[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const text = await cardContents.nth(i).textContent();
+      if (text) {
+        texts.push(text);
+      }
+    }
+
+    // In mock mode, different strategies should produce different content patterns
+    // At minimum, we should have 4 different outputs
+    if (texts.length === 4) {
+      // Check that the outputs differ from each other
+      const uniqueTexts = new Set(texts);
+      // Allow for some similarity but expect at least 2 different patterns
+      expect(uniqueTexts.size).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  // ============================================================================
+  // Run Button Tests (Training Mode)
+  // ============================================================================
+
+  test('run button is visible on each lineage card', async ({ page }) => {
+    await createSession(page, 'Run Button Visible Test', 'Testing run button visibility');
+
+    // Check for Run Agent buttons (has Play icon, title="Run Agent")
+    const runButtons = page.locator('button[title="Run Agent"]');
+
+    // Should have 4 run buttons (one per lineage card)
+    await expect(runButtons).toHaveCount(4);
+
+    // Each should be visible
+    await expect(runButtons.first()).toBeVisible();
+  });
+
+  test('clicking run button executes the agent and produces new output', async ({ page }) => {
+    await createSession(page, 'Run Agent Test', 'Testing agent execution with run button');
+
+    // Wait for initial cards to render with content
+    await page.waitForTimeout(2000);
+
+    // Get the initial artifact content from the first card
+    const firstCard = page.locator('.grid > div').first();
+    const initialContent = await firstCard.locator('.line-clamp-6').textContent();
+    expect(initialContent).toBeTruthy();
+    expect(initialContent).not.toBe('No content yet');
+
+    // Get the initial cycle number
+    const initialCycleText = await firstCard.locator('text=/Cycle \\d+/').textContent();
+    const initialCycle = parseInt(initialCycleText?.match(/\\d+/)?.[0] || '1');
+
+    // Click the Run button on the first card
+    const runButton = firstCard.locator('button[title="Run Agent"]');
+    await runButton.click();
+
+    // Wait for the running state (button shows "Running...")
+    await expect(runButton).toHaveAttribute('title', 'Running...', { timeout: 5000 });
+
+    // Wait for execution to complete (button goes back to "Run Agent")
+    await expect(runButton).toHaveAttribute('title', 'Run Agent', { timeout: 30000 });
+
+    // The cycle number should have incremented
+    const newCycleText = await firstCard.locator('text=/Cycle \\d+/').textContent();
+    const newCycle = parseInt(newCycleText?.match(/\\d+/)?.[0] || '1');
+    expect(newCycle).toBe(initialCycle + 1);
+
+    // New content should be present (may be same or different since same agent runs)
+    const newContent = await firstCard.locator('.line-clamp-6').textContent();
+    expect(newContent).toBeTruthy();
+    expect(newContent).not.toBe('No content yet');
+  });
+
+  test('run button does not evolve the agent (version stays same)', async ({ page }) => {
+    await createSession(page, 'Run No Evolution Test', 'Testing that run does not evolve');
+
+    // Wait for cards to render
+    await page.waitForTimeout(2000);
+
+    // Click View Agent to check initial version
+    const firstCard = page.locator('.grid > div').first();
+    const viewAgentButton = firstCard.locator('button[title="View Agent"]');
+    await viewAgentButton.click();
+
+    // Wait for modal
+    await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 10000 });
+
+    // Find the version number in the modal (look for "v1" or similar)
+    const versionText = await page.locator('[role="dialog"]').textContent();
+    const initialVersionMatch = versionText?.match(/v(\\d+)/);
+    const initialVersion = initialVersionMatch ? parseInt(initialVersionMatch[1]) : 1;
+
+    // Close the modal
+    await page.click('button:has-text("Close")');
+    await expect(page.locator('[role="dialog"]')).not.toBeVisible();
+
+    // Now click the Run button
+    const runButton = firstCard.locator('button[title="Run Agent"]');
+    await runButton.click();
+
+    // Wait for execution to complete
+    await expect(runButton).toHaveAttribute('title', 'Run Agent', { timeout: 30000 });
+
+    // View agent again to check version hasn't changed
+    await viewAgentButton.click();
+    await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 10000 });
+
+    const newVersionText = await page.locator('[role="dialog"]').textContent();
+    const newVersionMatch = newVersionText?.match(/v(\\d+)/);
+    const newVersion = newVersionMatch ? parseInt(newVersionMatch[1]) : 1;
+
+    // Version should be the same (no evolution occurred)
+    expect(newVersion).toBe(initialVersion);
+  });
+
+  // ============================================================================
+  // Agent with Web Search Tool Tests
+  // ============================================================================
+
+  test('agent with web_search tool produces output', async ({ page }) => {
+    // Create a session that would naturally include web search tool
+    await createSession(page, 'Web Search Agent Test', 'I need an agent that searches the web for current news and summarizes it');
+
+    // Wait for cards to render
+    await page.waitForTimeout(3000);
+
+    // Check that we have artifact content (regardless of whether it actually used web search)
+    const cardContents = page.locator('.line-clamp-6');
+    const count = await cardContents.count();
+    expect(count).toBe(4);
+
+    // Each card should have some content
+    for (let i = 0; i < count; i++) {
+      const text = await cardContents.nth(i).textContent();
+      expect(text).toBeTruthy();
+      expect(text?.length).toBeGreaterThan(0);
+    }
+
+    // View agent to verify it has tools defined
+    const viewAgentButton = page.locator('button[title="View Agent"]').first();
+    await viewAgentButton.click();
+
+    // Wait for modal
+    await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 10000 });
+
+    // The agent should have a flow visualization
+    await expect(page.locator('.react-flow')).toBeVisible({ timeout: 5000 });
+
+    // Close modal
+    await page.click('button:has-text("Close")');
+  });
+
+  test('web search agent can be run multiple times via run button', async ({ page }) => {
+    await createSession(page, 'Web Search Run Test', 'Search the web for recent AI news');
+
+    // Wait for initial output
+    await page.waitForTimeout(2000);
+
+    const firstCard = page.locator('.grid > div').first();
+
+    // Get initial cycle
+    const initialCycleText = await firstCard.locator('text=/Cycle \\d+/').textContent();
+    const initialCycle = parseInt(initialCycleText?.match(/\\d+/)?.[0] || '1');
+
+    // Run the agent twice
+    const runButton = firstCard.locator('button[title="Run Agent"]');
+
+    // First run
+    await runButton.click();
+    await expect(runButton).toHaveAttribute('title', 'Run Agent', { timeout: 30000 });
+
+    // Second run
+    await runButton.click();
+    await expect(runButton).toHaveAttribute('title', 'Run Agent', { timeout: 30000 });
+
+    // Cycle should have incremented by 2
+    const finalCycleText = await firstCard.locator('text=/Cycle \\d+/').textContent();
+    const finalCycle = parseInt(finalCycleText?.match(/\\d+/)?.[0] || '1');
+    expect(finalCycle).toBe(initialCycle + 2);
+  });
+
+  // ============================================================================
+  // Quick Start Mode Tests
+  // ============================================================================
+
+  test('quick start page loads', async ({ page }) => {
+    await page.goto('http://localhost:5173');
+
+    // Look for Quick Start button
+    await expect(page.locator('button:has-text("Quick Start")')).toBeVisible();
+
+    // Click it to navigate to quick start new page
+    await page.click('button:has-text("Quick Start")');
+
+    // Should be on quick start new page
+    await expect(page.url()).toContain('/quickstart/new');
+    await expect(page.getByRole('heading', { name: 'Quick Start' })).toBeVisible();
+  });
+
+  test('can create quick start session and see prototype output', async ({ page }) => {
+    await page.goto('http://localhost:5173/quickstart/new');
+
+    // Fill in required fields
+    await page.getByLabel('Session Name').fill('E2E Test Session');
+    await page.getByLabel('What do you need?').fill('A quick summarization assistant');
+
+    // Submit
+    await page.click('button:has-text("Start")');
+
+    // Wait for navigation to quick start session page
+    await page.waitForURL(/\/quickstart\//, { timeout: 60000 });
+
+    // Should see prototype output
+    await page.waitForTimeout(2000);
+
+    // Should have a single card with content
+    const prototypeCard = page.locator('.prose, .whitespace-pre-wrap').first();
+    await expect(prototypeCard).toBeVisible({ timeout: 30000 });
+  });
+
+  test('quick start has run again button', async ({ page }) => {
+    await page.goto('http://localhost:5173/quickstart/new');
+    await page.getByLabel('Session Name').fill('Run Again Test');
+    await page.getByLabel('What do you need?').fill('Test assistant');
+    await page.click('button:has-text("Start")');
+    await page.waitForURL(/\/quickstart\//, { timeout: 60000 });
+    await page.waitForTimeout(2000);
+
+    // Should see Run Again button
+    await expect(page.locator('button:has-text("Run Again")')).toBeVisible();
+  });
+
+  test('quick start has iterate button with feedback input', async ({ page }) => {
+    await page.goto('http://localhost:5173/quickstart/new');
+    await page.getByLabel('Session Name').fill('Iterate Test');
+    await page.getByLabel('What do you need?').fill('Test assistant');
+    await page.click('button:has-text("Start")');
+    await page.waitForURL(/\/quickstart\//, { timeout: 60000 });
+    await page.waitForTimeout(2000);
+
+    // Should see feedback textarea and Iterate button
+    await expect(page.locator('textarea[placeholder*="change"]')).toBeVisible();
+    await expect(page.locator('button:has-text("Iterate")')).toBeVisible();
+  });
+
+  test('quick start has promote to training button', async ({ page }) => {
+    await page.goto('http://localhost:5173/quickstart/new');
+    await page.getByLabel('Session Name').fill('Promote Test');
+    await page.getByLabel('What do you need?').fill('Test assistant');
+    await page.click('button:has-text("Start")');
+    await page.waitForURL(/\/quickstart\//, { timeout: 60000 });
+    await page.waitForTimeout(2000);
+
+    // Should see Promote to Training button
+    await expect(page.locator('button:has-text("Promote to Training")')).toBeVisible();
   });
 });
