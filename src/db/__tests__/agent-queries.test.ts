@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { AgentDefinition } from '../../types/agent';
 import * as queries from '../queries';
 import { getDatabase, saveDatabase } from '../index';
@@ -45,7 +45,13 @@ describe('Agent Queries', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
     mockDb = getDatabase();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('createAgent', () => {

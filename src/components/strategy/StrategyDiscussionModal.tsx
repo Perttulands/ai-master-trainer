@@ -30,29 +30,7 @@ export function StrategyDiscussionModal({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Initialize with strategy proposal when modal opens
-  useEffect(() => {
-    if (isOpen && !hasInitialized) {
-      initializeDiscussion();
-    }
-  }, [isOpen, hasInitialized]);
-
-  // Reset when modal closes
-  useEffect(() => {
-    if (!isOpen) {
-      setMessages([]);
-      setCurrentStrategies(DEFAULT_STRATEGIES);
-      setHasInitialized(false);
-      setInputValue('');
-    }
-  }, [isOpen]);
-
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const initializeDiscussion = async () => {
+  const initializeDiscussion = useCallback(async () => {
     setIsLoading(true);
     setHasInitialized(true);
 
@@ -75,7 +53,29 @@ export function StrategyDiscussionModal({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [need, constraints]);
+
+  // Initialize with strategy proposal when modal opens
+  useEffect(() => {
+    if (isOpen && !hasInitialized) {
+      initializeDiscussion();
+    }
+  }, [isOpen, hasInitialized, initializeDiscussion]);
+
+  // Reset when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setMessages([]);
+      setCurrentStrategies(DEFAULT_STRATEGIES);
+      setHasInitialized(false);
+      setInputValue('');
+    }
+  }, [isOpen]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const handleSendMessage = useCallback(async () => {
     if (!inputValue.trim() || isLoading) return;
