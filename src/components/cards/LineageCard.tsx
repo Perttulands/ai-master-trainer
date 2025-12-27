@@ -1,4 +1,4 @@
-import { Lock, Unlock, Maximize2, MessageSquare } from 'lucide-react';
+import { Lock, Unlock, Maximize2, MessageSquare, Eye } from 'lucide-react';
 import { Card, CardHeader, CardContent, CardFooter, Badge, ScoreSlider } from '../ui';
 import { cn } from '../../utils/cn';
 import type { LineageWithArtifact } from '../../types';
@@ -7,9 +7,10 @@ import { useUIStore } from '../../store/ui';
 
 interface LineageCardProps {
   lineage: LineageWithArtifact;
+  onViewAgent?: (lineageId: string) => void;
 }
 
-export function LineageCard({ lineage }: LineageCardProps) {
+export function LineageCard({ lineage, onViewAgent }: LineageCardProps) {
   const { toggleLock, setScore } = useLineageStore();
   const { expandCard, openDirectivesForLineage } = useUIStore();
 
@@ -51,6 +52,13 @@ export function LineageCard({ lineage }: LineageCardProps) {
               <MessageSquare className="w-4 h-4" />
             </button>
           )}
+          <button
+            onClick={() => onViewAgent?.(lineage.id)}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            title="View Agent"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
           <button
             onClick={() => expandCard(lineage.id)}
             className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"

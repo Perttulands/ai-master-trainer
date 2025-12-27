@@ -37,7 +37,7 @@
       "configureZshAsDefaultShell": false
     }
   },
-  "postCreateCommand": "sudo chown -R node:node /workspace/node_modules && pnpm install && pnpm exec tailwindcss init -p && pip install --user litellm anthropic || true",
+  "postCreateCommand": "sudo chown -R node:node /workspace/node_modules && pnpm install && pnpm exec tailwindcss init -p && pip install --user litellm anthropic agentlightning || true",
   "postStartCommand": "echo 'Dev container ready'",
   "remoteUser": "node",
   "forwardPorts": [3000, 5173],

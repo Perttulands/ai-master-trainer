@@ -1,27 +1,95 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Sparkles } from 'lucide-react';
+import { ArrowLeft, Sparkles, ChevronDown, ChevronUp, FileText, Plus, Trash2 } from 'lucide-react';
 import { Button, Input, Textarea, Card, CardContent } from '../components/ui';
 import { Header } from '../components/layout/Header';
+import { StrategyDiscussionModal } from '../components/strategy';
 import { useSessionStore } from '../store/session';
 import { useLineageStore } from '../store/lineages';
-import { generateInitialLineages } from '../agents/master-trainer';
+import { useContextStore } from '../store/context';
+import { generateAgentsFromStrategies } from '../agents/agent-generator';
+import type { CustomStrategy } from '../types/strategy';
+
+interface ContextDocument {
+  name: string;
+  content: string;
+}
+
+interface ContextExample {
+  name: string;
+  input: string;
+  expectedOutput: string;
+}
 
 export function NewSession() {
   const navigate = useNavigate();
   const { createSession } = useSessionStore();
-  const { createInitialLineages } = useLineageStore();
+  const { createInitialLineagesWithAgents } = useLineageStore();
+  const { addDocument, addExample } = useContextStore();
 
   const [name, setName] = useState('');
   const [need, setNeed] = useState('');
   const [constraints, setConstraints] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showStrategyModal, setShowStrategyModal] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Context state
+  const [showContext, setShowContext] = useState(false);
+  const [documents, setDocuments] = useState<ContextDocument[]>([]);
+  const [examples, setExamples] = useState<ContextExample[]>([]);
+
+  // Inline forms for adding context
+  const [showDocForm, setShowDocForm] = useState(false);
+  const [newDocName, setNewDocName] = useState('');
+  const [newDocContent, setNewDocContent] = useState('');
+
+  const [showExampleForm, setShowExampleForm] = useState(false);
+  const [newExampleName, setNewExampleName] = useState('');
+  const [newExampleInput, setNewExampleInput] = useState('');
+  const [newExampleOutput, setNewExampleOutput] = useState('');
+
+  const handleAddDocument = () => {
+    if (newDocName.trim() && newDocContent.trim()) {
+      setDocuments([...documents, { name: newDocName.trim(), content: newDocContent.trim() }]);
+      setNewDocName('');
+      setNewDocContent('');
+      setShowDocForm(false);
+    }
+  };
+
+  const handleAddExample = () => {
+    if (newExampleName.trim() && newExampleInput.trim() && newExampleOutput.trim()) {
+      setExamples([
+        ...examples,
+        { name: newExampleName.trim(), input: newExampleInput.trim(), expectedOutput: newExampleOutput.trim() },
+      ]);
+      setNewExampleName('');
+      setNewExampleInput('');
+      setNewExampleOutput('');
+      setShowExampleForm(false);
+    }
+  };
+
+  const handleRemoveDocument = (index: number) => {
+    setDocuments(documents.filter((_, i) => i !== index));
+  };
+
+  const handleRemoveExample = (index: number) => {
+    setExamples(examples.filter((_, i) => i !== index));
+  };
+
+  // Open strategy discussion modal when form is submitted
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !need.trim()) return;
+    setError(null);
+    setShowStrategyModal(true);
+  };
 
+  // Handle confirmed strategies from discussion modal
+  const handleStrategiesConfirmed = useCallback(async (strategies: CustomStrategy[]) => {
+    setShowStrategyModal(false);
     setIsCreating(true);
     setError(null);
 
@@ -33,14 +101,34 @@ export function NewSession() {
         constraints: constraints.trim() || undefined,
       });
 
-      // Generate initial lineages with Master Trainer (uses LLM)
-      const initialLineages = await generateInitialLineages(
+      // Save context to store
+      for (const doc of documents) {
+        addDocument({
+          sessionId: session.id,
+          name: doc.name,
+          content: doc.content,
+          mimeType: 'text/plain',
+          size: doc.content.length,
+        });
+      }
+      for (const example of examples) {
+        addExample({
+          sessionId: session.id,
+          name: example.name,
+          input: example.input,
+          expectedOutput: example.expectedOutput,
+        });
+      }
+
+      // Generate agents using the confirmed custom strategies
+      const agentConfigs = await generateAgentsFromStrategies(
         need.trim(),
+        strategies,
         constraints.trim() || undefined
       );
 
-      // Create lineages in database
-      createInitialLineages(session.id, initialLineages);
+      // Create lineages with agents and execute them to produce artifacts
+      await createInitialLineagesWithAgents(session.id, agentConfigs);
 
       // Navigate to training view
       navigate(`/session/${session.id}`);
@@ -49,7 +137,9 @@ export function NewSession() {
       setError(err instanceof Error ? err.message : 'Failed to create session');
       setIsCreating(false);
     }
-  };
+  }, [name, need, constraints, documents, examples, createSession, addDocument, addExample, createInitialLineagesWithAgents, navigate]);
+
+  const contextCount = documents.length + examples.length;
 
   return (
     <div className="min-h-screen">
@@ -109,6 +199,200 @@ export function NewSession() {
                 rows={3}
               />
 
+              {/* Context Section */}
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowContext(!showContext)}
+                  className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-gray-500" />
+                    <span className="font-medium text-gray-700">Context & Examples</span>
+                    {contextCount > 0 && (
+                      <span className="px-2 py-0.5 text-xs font-medium bg-primary-100 text-primary-700 rounded-full">
+                        {contextCount} added
+                      </span>
+                    )}
+                  </div>
+                  {showContext ? (
+                    <ChevronUp className="w-5 h-5 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                  )}
+                </button>
+
+                {showContext && (
+                  <div className="p-4 space-y-4 border-t border-gray-200">
+                    <p className="text-sm text-gray-500">
+                      Add reference documents and examples to help the AI understand your specific style and requirements.
+                    </p>
+
+                    {/* Documents Section */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-medium text-gray-700">Reference Documents</h4>
+                        <button
+                          type="button"
+                          onClick={() => setShowDocForm(true)}
+                          className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-700"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Add Document
+                        </button>
+                      </div>
+
+                      {documents.length > 0 && (
+                        <div className="space-y-2 mb-2">
+                          {documents.map((doc, index) => (
+                            <div
+                              key={index}
+                              className="flex items-center justify-between p-2 bg-gray-50 rounded-lg text-sm"
+                            >
+                              <div className="flex items-center gap-2">
+                                <FileText className="w-4 h-4 text-gray-400" />
+                                <span className="text-gray-700">{doc.name}</span>
+                                <span className="text-gray-400">({doc.content.length} chars)</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveDocument(index)}
+                                className="p-1 text-gray-400 hover:text-red-500"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {showDocForm && (
+                        <div className="p-3 bg-gray-50 rounded-lg space-y-3">
+                          <Input
+                            placeholder="Document name"
+                            value={newDocName}
+                            onChange={(e) => setNewDocName(e.target.value)}
+                          />
+                          <Textarea
+                            placeholder="Paste your document content here..."
+                            value={newDocContent}
+                            onChange={(e) => setNewDocContent(e.target.value)}
+                            rows={4}
+                          />
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setShowDocForm(false);
+                                setNewDocName('');
+                                setNewDocContent('');
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={handleAddDocument}
+                              disabled={!newDocName.trim() || !newDocContent.trim()}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Examples Section */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-medium text-gray-700">Examples (Input → Expected Output)</h4>
+                        <button
+                          type="button"
+                          onClick={() => setShowExampleForm(true)}
+                          className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-700"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Add Example
+                        </button>
+                      </div>
+
+                      {examples.length > 0 && (
+                        <div className="space-y-2 mb-2">
+                          {examples.map((example, index) => (
+                            <div
+                              key={index}
+                              className="p-2 bg-gray-50 rounded-lg text-sm"
+                            >
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="font-medium text-gray-700">{example.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveExample(index)}
+                                  className="p-1 text-gray-400 hover:text-red-500"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                              <div className="text-xs text-gray-500 truncate">
+                                Input: {example.input.slice(0, 50)}...
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {showExampleForm && (
+                        <div className="p-3 bg-gray-50 rounded-lg space-y-3">
+                          <Input
+                            placeholder="Example name (e.g., 'Email Summary Example')"
+                            value={newExampleName}
+                            onChange={(e) => setNewExampleName(e.target.value)}
+                          />
+                          <Textarea
+                            placeholder="Input text..."
+                            value={newExampleInput}
+                            onChange={(e) => setNewExampleInput(e.target.value)}
+                            rows={3}
+                          />
+                          <Textarea
+                            placeholder="Expected output..."
+                            value={newExampleOutput}
+                            onChange={(e) => setNewExampleOutput(e.target.value)}
+                            rows={3}
+                          />
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setShowExampleForm(false);
+                                setNewExampleName('');
+                                setNewExampleInput('');
+                                setNewExampleOutput('');
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={handleAddExample}
+                              disabled={!newExampleName.trim() || !newExampleInput.trim() || !newExampleOutput.trim()}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                 <Button
                   type="button"
@@ -136,6 +420,15 @@ export function NewSession() {
           </CardContent>
         </Card>
       </main>
+
+      {/* Strategy Discussion Modal */}
+      <StrategyDiscussionModal
+        isOpen={showStrategyModal}
+        onClose={() => setShowStrategyModal(false)}
+        onConfirm={handleStrategiesConfirmed}
+        need={need.trim()}
+        constraints={constraints.trim() || undefined}
+      />
     </div>
   );
 }

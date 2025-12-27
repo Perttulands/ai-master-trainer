@@ -2,7 +2,15 @@
 
 ## Project Overview
 
-Training Camp is a lineage-based interactive training system for AI agents. Users create/improve agents by expressing needs and evaluating outputs through a 4-card grid interface.
+Training Camp enables non-technical users to create and improve AI agents through expressing needs and evaluating outputs. Users review 4 parallel agent outputs (artifacts), score them 1-10, lock winners, and regenerate the rest.
+
+**Key distinction**: The system trains **Agents** (configurations), not text. Users evaluate **Artifacts** (agent outputs), which drives **Agent** evolution.
+
+See `docs/` for detailed specifications:
+- `docs/CONTEXT-RECOVERY.md` - **Start here after context reset**
+- `docs/PRD.md` - Product requirements and user journeys
+- `docs/ARCHITECTURE.md` - Data models and system flow
+- `docs/UI-flowchart-viewer.md` - Agent viewer UI spec
 
 ## Tech Stack
 
@@ -220,3 +228,49 @@ Required in `.env`:
 - `GOOGLE_API_KEY` - Gemini / ADK access
 - `LITELLM_API_KEY` - LiteLLM proxy access
 - `LITELLM_API_BASE` - LiteLLM endpoint URL
+
+## Training Signal Capture
+
+Every agent execution is recorded for future model training. See `docs/SPEC-training-signal-capture.md`.
+
+**Key tables:**
+- `training_events` - Immutable event log
+- `payload_blobs` - Content-addressed storage (dedup)
+- `training_examples` - Materialized SFT/DPO examples
+
+**Recording functions** (in `src/services/training-signal/`):
+```typescript
+recordAgentCreated(agent, lineageId)
+recordAttemptCompleted(attempt, spans, output)
+recordArtifactScored(artifact, score, comment)
+recordLineageLocked(lineageId, competitorIds)
+recordAgentEvolved(fromAgent, toAgent, changes, hypothesis)
+```
+
+## Flow & Tool Execution
+
+Agents can define multi-step flows with tool calls:
+
+**Flow execution** (`src/services/flow/`):
+- `executeFlow(agent, input, attemptId)` - Run agent's flow
+- Supports: start, prompt, tool, condition, loop, output steps
+
+**Tool execution** (`src/services/tools/`):
+- `toolRegistry.register(implementation)` - Register tools
+- `executeToolCalls(calls, options)` - Run tool calls
+- Built-in tools: web_search, format_markdown, analyze_data, brainstorm
+
+## Evolution Pipeline
+
+Full evolution cycle (`src/services/`):
+1. **Reward Analysis** - Parse scores/comments (`reward-analyzer.ts`)
+2. **Credit Assignment** - Blame prompt segments (`credit-assignment.ts`)
+3. **Evolution Planning** - Generate changes (`evolution-planner.ts`)
+4. **Agent Evolution** - Apply changes (`agent-evolver.ts`)
+5. **Learning** - Track patterns (`evolution-pipeline.ts`)
+
+## Agent Lightning Integration
+
+We follow Agent Lightning patterns. See `docs/REPORT-agent-lightning-integration.md`.
+
+Future: Export data for APO (Automatic Prompt Optimization) via Agent Lightning Python package.

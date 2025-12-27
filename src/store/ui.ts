@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type PanelType = 'trainer' | 'directives' | null;
+type PanelType = 'trainer' | 'directives' | 'context' | null;
 
 interface UIState {
   // Right panel

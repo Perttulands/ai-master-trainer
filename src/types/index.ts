@@ -46,6 +46,12 @@ export interface AuditLogEntry {
 
 export type LineageLabel = 'A' | 'B' | 'C' | 'D';
 
+// Agent types
+export * from './agent';
+
+// Context types
+export * from './context';
+
 export interface LineageWithArtifact extends Lineage {
   currentArtifact: Artifact | null;
   currentEvaluation: Evaluation | null;

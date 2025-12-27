@@ -1,6 +1,29 @@
 import { create } from 'zustand';
 import type { Lineage, LineageWithArtifact, LineageLabel } from '../types';
+import type { AgentDefinition } from '../types/agent';
+import type { ExecutionSpan } from '../types/evolution';
 import * as queries from '../db/queries';
+import {
+  executeAgentWithFallback,
+  generateDefaultTestInput,
+  type ExecutionInput,
+  type ExecutionOptions,
+} from '../services/agent-executor';
+import { runEvolutionPipeline } from '../services/evolution-pipeline';
+import { generateId } from '../utils/id';
+import {
+  recordAgentCreated,
+  recordArtifactScored,
+  recordLineageLocked,
+} from '../services/training-signal/recorder';
+
+interface RegenerateWithAgentsOptions {
+  lineage: LineageWithArtifact;
+  currentAgent: AgentDefinition | undefined;
+  cycle: number;
+  need: string;
+  previousScore: number;
+}
 
 interface LineageState {
   lineages: LineageWithArtifact[];
@@ -11,15 +34,33 @@ interface LineageState {
   // Actions
   loadLineages: (sessionId: string) => void;
   createInitialLineages: (sessionId: string, strategies: { label: LineageLabel; strategyTag: string; content: string }[]) => void;
+  createInitialLineagesWithAgents: (
+    sessionId: string,
+    configs: { label: LineageLabel; strategyTag: string; agent: AgentDefinition }[],
+    testInput?: ExecutionInput
+  ) => Promise<void>;
   toggleLock: (lineageId: string) => void;
   setScore: (lineageId: string, score: number) => void;
   setComment: (lineageId: string, comment: string) => void;
   setDirective: (lineageId: string, type: 'sticky' | 'oneshot', content: string) => void;
   clearDirective: (lineageId: string, type: 'sticky' | 'oneshot') => void;
   regenerateUnlocked: (sessionId: string, generateArtifact: (lineage: Lineage, cycle: number) => Promise<string>) => Promise<void>;
+  regenerateUnlockedWithAgents: (
+    sessionId: string,
+    need: string,
+    evolveAgent: (options: RegenerateWithAgentsOptions) => Promise<AgentDefinition>,
+    getAgentForLineage: (lineageId: string) => AgentDefinition | undefined
+  ) => Promise<void>;
+  regenerateWithFullPipeline: (
+    sessionId: string,
+    need: string,
+    getAgentForLineage: (lineageId: string) => AgentDefinition | undefined
+  ) => Promise<void>;
   canRegenerate: () => boolean;
   getUnlockedLineages: () => LineageWithArtifact[];
 }
+
+export type { RegenerateWithAgentsOptions };
 
 export const useLineageStore = create<LineageState>((set, get) => ({
   lineages: [],
@@ -61,16 +102,89 @@ export const useLineageStore = create<LineageState>((set, get) => ({
     set({ lineages: lineagesWithArtifacts });
   },
 
+  createInitialLineagesWithAgents: async (sessionId, configs, testInput?: ExecutionInput) => {
+    set({ isLoading: true });
+
+    try {
+      // Get session need for default test input
+      const session = queries.getSession(sessionId);
+      const input = testInput || generateDefaultTestInput(session?.need || 'Demonstrate your capabilities');
+
+      const lineagesWithArtifacts: LineageWithArtifact[] = await Promise.all(
+        configs.map(async (config) => {
+          // Create lineage
+          const lineage = queries.createLineage(sessionId, config.label, config.strategyTag);
+
+          // Create agent linked to lineage
+          queries.createAgent(config.agent, lineage.id);
+
+          // Record training signal for agent creation
+          try {
+            recordAgentCreated(config.agent, lineage.id);
+          } catch (recordError) {
+            console.warn('[Lineages] Failed to record agent creation:', recordError);
+          }
+
+          // Execute agent to produce artifact content with tracking
+          const executionOptions: ExecutionOptions = {
+            lineageId: lineage.id,
+            cycle: 1,
+            createRecords: true,
+          };
+          const result = await executeAgentWithFallback(config.agent, input, executionOptions);
+
+          // Create artifact with execution output and span metadata
+          const artifact = queries.createArtifact(lineage.id, 1, result.output, {
+            agentId: config.agent.id,
+            agentVersion: config.agent.version,
+            executionSuccess: result.success,
+            executionTimeMs: result.metadata.executionTimeMs,
+            inputUsed: result.metadata.inputUsed,
+            rolloutId: result.metadata.rolloutId,
+            attemptId: result.metadata.attemptId,
+            stepsExecuted: result.metadata.stepsExecuted,
+            spanCount: result.spans?.length ?? 0,
+          });
+
+          return {
+            ...lineage,
+            currentArtifact: artifact,
+            currentEvaluation: null,
+            cycle: 1,
+          };
+        })
+      );
+
+      set({ lineages: lineagesWithArtifacts, isLoading: false });
+    } catch (e) {
+      set({ error: (e as Error).message, isLoading: false });
+    }
+  },
+
   toggleLock: (lineageId: string) => {
     const lineage = get().lineages.find((l) => l.id === lineageId);
     if (!lineage) return;
 
-    queries.updateLineage(lineageId, { isLocked: !lineage.isLocked });
+    const newLockedState = !lineage.isLocked;
+    queries.updateLineage(lineageId, { isLocked: newLockedState });
     set((state) => ({
       lineages: state.lineages.map((l) =>
-        l.id === lineageId ? { ...l, isLocked: !l.isLocked } : l
+        l.id === lineageId ? { ...l, isLocked: newLockedState } : l
       ),
     }));
+
+    // Record training signal when lineage is locked (winner selected)
+    if (newLockedState) {
+      try {
+        // Get competitor IDs (other lineages in the same session that are not locked)
+        const competitorIds = get()
+          .lineages.filter((l) => l.id !== lineageId && !l.isLocked)
+          .map((l) => l.id);
+        recordLineageLocked(lineageId, competitorIds);
+      } catch (recordError) {
+        console.warn('[Lineages] Failed to record lineage locked:', recordError);
+      }
+    }
   },
 
   setScore: (lineageId: string, score: number) => {
@@ -86,6 +200,13 @@ export const useLineageStore = create<LineageState>((set, get) => ({
             : l
         ),
       }));
+
+      // Record training signal for score update
+      try {
+        recordArtifactScored(lineage.currentArtifact, score, lineage.currentEvaluation.comment ?? undefined);
+      } catch (recordError) {
+        console.warn('[Lineages] Failed to record artifact scored:', recordError);
+      }
     } else {
       const evaluation = queries.createEvaluation(lineage.currentArtifact.id, score);
       set((state) => ({
@@ -93,6 +214,13 @@ export const useLineageStore = create<LineageState>((set, get) => ({
           l.id === lineageId ? { ...l, currentEvaluation: evaluation } : l
         ),
       }));
+
+      // Record training signal for new score
+      try {
+        recordArtifactScored(lineage.currentArtifact, score);
+      } catch (recordError) {
+        console.warn('[Lineages] Failed to record artifact scored:', recordError);
+      }
     }
   },
 
@@ -183,6 +311,198 @@ export const useLineageStore = create<LineageState>((set, get) => ({
 
       set({ lineages: updatedLineages, isRegenerating: false });
     } catch (e) {
+      set({ error: (e as Error).message, isRegenerating: false });
+    }
+  },
+
+  regenerateUnlockedWithAgents: async (sessionId, need, evolveAgentFn, getAgentForLineage) => {
+    const unlockedLineages = get().getUnlockedLineages();
+    if (unlockedLineages.length === 0) return;
+
+    set({ isRegenerating: true });
+
+    try {
+      const currentCycle = queries.getCurrentCycle(sessionId);
+      const nextCycle = currentCycle + 1;
+      const testInput = generateDefaultTestInput(need);
+
+      const updatedLineages = await Promise.all(
+        get().lineages.map(async (lineage) => {
+          if (lineage.isLocked) return lineage;
+
+          // Clear oneshot directive after use
+          if (lineage.directiveOneshot) {
+            queries.clearOneshotDirective(lineage.id);
+          }
+
+          // Get current agent for this lineage
+          const currentAgent = getAgentForLineage(lineage.id);
+          const previousScore = lineage.currentEvaluation?.score ?? 5;
+
+          // Evolve the agent using the provided function
+          const evolvedAgent = await evolveAgentFn({
+            lineage,
+            currentAgent,
+            cycle: nextCycle,
+            need,
+            previousScore,
+          });
+
+          // Save evolved agent to database
+          queries.createAgent(evolvedAgent, lineage.id);
+
+          // Execute evolved agent with tracking enabled
+          const executionOptions: ExecutionOptions = {
+            lineageId: lineage.id,
+            cycle: nextCycle,
+            createRecords: true,
+          };
+          const result = await executeAgentWithFallback(evolvedAgent, testInput, executionOptions);
+
+          // Create artifact with execution output and span metadata
+          const artifact = queries.createArtifact(lineage.id, nextCycle, result.output, {
+            agentId: evolvedAgent.id,
+            agentVersion: evolvedAgent.version,
+            executionSuccess: result.success,
+            executionTimeMs: result.metadata.executionTimeMs,
+            inputUsed: result.metadata.inputUsed,
+            rolloutId: result.metadata.rolloutId,
+            attemptId: result.metadata.attemptId,
+            stepsExecuted: result.metadata.stepsExecuted,
+            spanCount: result.spans?.length ?? 0,
+          });
+
+          return {
+            ...lineage,
+            directiveOneshot: null,
+            currentArtifact: artifact,
+            currentEvaluation: null,
+            cycle: nextCycle,
+          };
+        })
+      );
+
+      set({ lineages: updatedLineages, isRegenerating: false });
+    } catch (e) {
+      set({ error: (e as Error).message, isRegenerating: false });
+    }
+  },
+
+  regenerateWithFullPipeline: async (sessionId, need, getAgentForLineage) => {
+    const unlockedLineages = get().getUnlockedLineages();
+    if (unlockedLineages.length === 0) return;
+
+    set({ isRegenerating: true });
+
+    try {
+      const currentCycle = queries.getCurrentCycle(sessionId);
+      const nextCycle = currentCycle + 1;
+      const testInput = generateDefaultTestInput(need);
+
+      const updatedLineages = await Promise.all(
+        get().lineages.map(async (lineage) => {
+          if (lineage.isLocked) return lineage;
+
+          // Clear oneshot directive after use
+          if (lineage.directiveOneshot) {
+            queries.clearOneshotDirective(lineage.id);
+          }
+
+          // Get current agent for this lineage
+          const currentAgent = getAgentForLineage(lineage.id);
+          if (!currentAgent) {
+            console.warn(`[Pipeline] No agent found for lineage ${lineage.id}`);
+            return lineage;
+          }
+
+          const previousScore = lineage.currentEvaluation?.score ?? 5;
+          const comment = lineage.currentEvaluation?.comment ?? undefined;
+
+          // Generate rollout and attempt IDs for tracking
+          const rolloutId = generateId();
+          const attemptId = generateId();
+
+          // First, execute the CURRENT agent to get execution spans for credit assignment
+          // This allows us to analyze what the current agent did wrong
+          let currentExecutionSpans: ExecutionSpan[] = [];
+          try {
+            const currentExecution = await executeAgentWithFallback(
+              { ...currentAgent, lineageId: lineage.id },
+              testInput,
+              {
+                lineageId: lineage.id,
+                cycle: lineage.cycle,
+                createRecords: false, // Don't create records for analysis run
+              }
+            );
+            currentExecutionSpans = currentExecution.spans ?? [];
+          } catch {
+            // If execution fails, continue without spans
+            console.warn(`[Pipeline] Could not get spans for lineage ${lineage.id}`);
+          }
+
+          // Run the full evolution pipeline with spans for trajectory credit assignment
+          const pipelineResult = await runEvolutionPipeline({
+            agent: { ...currentAgent, lineageId: lineage.id },
+            need,
+            score: previousScore,
+            comment,
+            stickyDirective: lineage.directiveSticky ?? undefined,
+            oneshotDirective: lineage.directiveOneshot ?? undefined,
+            previousScore: lineage.cycle > 1 ? previousScore : undefined,
+            rolloutId,
+            attemptId,
+            spans: currentExecutionSpans, // Pass spans for trajectory-based credit assignment
+            sessionId,
+          });
+
+          console.log(`[Pipeline] ${lineage.label}: ${pipelineResult.summary}`);
+          if (currentExecutionSpans.length > 1) {
+            console.log(`[Pipeline] ${lineage.label}: Used trajectory credit (${currentExecutionSpans.length} spans)`);
+          }
+
+          // Save evolved agent to database
+          queries.createAgent(pipelineResult.evolvedAgent, lineage.id);
+
+          // Execute evolved agent with full tracking
+          const executionOptions: ExecutionOptions = {
+            lineageId: lineage.id,
+            cycle: nextCycle,
+            createRecords: true,
+          };
+          const result = await executeAgentWithFallback(
+            pipelineResult.evolvedAgent,
+            testInput,
+            executionOptions
+          );
+
+          // Create artifact with execution output and full metadata
+          const artifact = queries.createArtifact(lineage.id, nextCycle, result.output, {
+            agentId: pipelineResult.evolvedAgent.id,
+            agentVersion: pipelineResult.evolvedAgent.version,
+            executionSuccess: result.success,
+            executionTimeMs: result.metadata.executionTimeMs,
+            inputUsed: result.metadata.inputUsed,
+            evolutionRecordId: pipelineResult.evolutionRecord.id,
+            rolloutId: result.metadata.rolloutId,
+            attemptId: result.metadata.attemptId,
+            stepsExecuted: result.metadata.stepsExecuted,
+            spanCount: result.spans?.length ?? 0,
+          });
+
+          return {
+            ...lineage,
+            directiveOneshot: null,
+            currentArtifact: artifact,
+            currentEvaluation: null,
+            cycle: nextCycle,
+          };
+        })
+      );
+
+      set({ lineages: updatedLineages, isRegenerating: false });
+    } catch (e) {
+      console.error('[Pipeline] Evolution failed:', e);
       set({ error: (e as Error).message, isRegenerating: false });
     }
   },

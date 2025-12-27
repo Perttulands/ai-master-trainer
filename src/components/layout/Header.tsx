@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, History, Download, RefreshCw, Zap, ZapOff } from 'lucide-react';
-import { Button } from '../ui';
+import { Button, ModelSelector } from '../ui';
 import type { Session } from '../../types';
 import { isLLMConfigured } from '../../api/llm';
 
@@ -9,6 +9,7 @@ interface HeaderProps {
   onRegenerate?: () => void;
   canRegenerate?: boolean;
   isRegenerating?: boolean;
+  onExport?: () => void;
 }
 
 export function Header({
@@ -16,6 +17,7 @@ export function Header({
   onRegenerate,
   canRegenerate = false,
   isRegenerating = false,
+  onExport,
 }: HeaderProps) {
   const navigate = useNavigate();
   const llmConnected = isLLMConfigured();
@@ -40,10 +42,13 @@ export function Header({
             </Link>
           )}
           {!session && (
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${llmConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-              {llmConnected ? <Zap className="w-3 h-3" /> : <ZapOff className="w-3 h-3" />}
-              {llmConnected ? 'LLM Connected' : 'Mock Mode'}
-            </div>
+            <>
+              <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${llmConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                {llmConnected ? <Zap className="w-3 h-3" /> : <ZapOff className="w-3 h-3" />}
+                {llmConnected ? 'LLM Connected' : 'Mock Mode'}
+              </div>
+              {llmConnected && <ModelSelector />}
+            </>
           )}
           {session && (
             <div>
@@ -54,7 +59,9 @@ export function Header({
         </div>
 
         {session && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {llmConnected && <ModelSelector />}
+            <div className="h-6 w-px bg-gray-200" />
             <Button
               variant="ghost"
               size="sm"
@@ -63,7 +70,12 @@ export function Header({
               <History className="w-4 h-4 mr-1" />
               History
             </Button>
-            <Button variant="ghost" size="sm">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onExport}
+              disabled={!onExport}
+            >
               <Download className="w-4 h-4 mr-1" />
               Export
             </Button>
