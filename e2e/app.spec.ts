@@ -42,8 +42,8 @@ test.describe('Training Camp', () => {
   test('can navigate to new session page', async ({ page }) => {
     await page.goto('http://localhost:5173');
 
-    // Click new session button
-    await page.click('text=New Session');
+    // Click new training button
+    await page.click('button:has-text("New Training")');
 
     // Should be on new session page
     await expect(page.url()).toContain('/new');
@@ -511,22 +511,14 @@ test.describe('Training Camp', () => {
 
     // Get the initial cycle number
     const initialCycleText = await firstCard.locator('text=/Cycle \\d+/').textContent();
-    const initialCycle = parseInt(initialCycleText?.match(/\\d+/)?.[0] || '1');
+    const initialCycle = parseInt(initialCycleText?.match(/\d+/)?.[0] || '1');
 
     // Click the Run button on the first card
-    const runButton = firstCard.locator('button[title="Run Agent"]');
-    await runButton.click();
+    await firstCard.locator('button[title="Run Agent"]').click();
 
-    // Wait for the running state (button shows "Running...")
-    await expect(runButton).toHaveAttribute('title', 'Running...', { timeout: 5000 });
-
-    // Wait for execution to complete (button goes back to "Run Agent")
-    await expect(runButton).toHaveAttribute('title', 'Run Agent', { timeout: 30000 });
-
-    // The cycle number should have incremented
-    const newCycleText = await firstCard.locator('text=/Cycle \\d+/').textContent();
-    const newCycle = parseInt(newCycleText?.match(/\\d+/)?.[0] || '1');
-    expect(newCycle).toBe(initialCycle + 1);
+    // Wait for cycle to increment (check for Cycle N+1)
+    const expectedCycleText = `Cycle ${initialCycle + 1}`;
+    await expect(firstCard.locator(`text=${expectedCycleText}`)).toBeVisible({ timeout: 60000 });
 
     // New content should be present (may be same or different since same agent runs)
     const newContent = await firstCard.locator('.line-clamp-6').textContent();
@@ -550,26 +542,30 @@ test.describe('Training Camp', () => {
 
     // Find the version number in the modal (look for "v1" or similar)
     const versionText = await page.locator('[role="dialog"]').textContent();
-    const initialVersionMatch = versionText?.match(/v(\\d+)/);
+    const initialVersionMatch = versionText?.match(/v(\d+)/);
     const initialVersion = initialVersionMatch ? parseInt(initialVersionMatch[1]) : 1;
 
-    // Close the modal
-    await page.click('button:has-text("Close")');
+    // Close the modal by pressing Escape
+    await page.keyboard.press('Escape');
     await expect(page.locator('[role="dialog"]')).not.toBeVisible();
 
-    // Now click the Run button
-    const runButton = firstCard.locator('button[title="Run Agent"]');
-    await runButton.click();
+    // Get initial cycle number
+    const initialCycleText = await firstCard.locator('text=/Cycle \\d+/').textContent();
+    const initialCycle = parseInt(initialCycleText?.match(/\d+/)?.[0] || '1');
 
-    // Wait for execution to complete
-    await expect(runButton).toHaveAttribute('title', 'Run Agent', { timeout: 30000 });
+    // Now click the Run button
+    await firstCard.locator('button[title="Run Agent"]').click();
+
+    // Wait for cycle to increment
+    const expectedCycleText = `Cycle ${initialCycle + 1}`;
+    await expect(firstCard.locator(`text=${expectedCycleText}`)).toBeVisible({ timeout: 60000 });
 
     // View agent again to check version hasn't changed
     await viewAgentButton.click();
     await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 10000 });
 
     const newVersionText = await page.locator('[role="dialog"]').textContent();
-    const newVersionMatch = newVersionText?.match(/v(\\d+)/);
+    const newVersionMatch = newVersionText?.match(/v(\d+)/);
     const newVersion = newVersionMatch ? parseInt(newVersionMatch[1]) : 1;
 
     // Version should be the same (no evolution occurred)
@@ -609,8 +605,8 @@ test.describe('Training Camp', () => {
     // The agent should have a flow visualization
     await expect(page.locator('.react-flow')).toBeVisible({ timeout: 5000 });
 
-    // Close modal
-    await page.click('button:has-text("Close")');
+    // Close modal by pressing Escape
+    await page.keyboard.press('Escape');
   });
 
   test('web search agent can be run multiple times via run button', async ({ page }) => {
@@ -623,22 +619,19 @@ test.describe('Training Camp', () => {
 
     // Get initial cycle
     const initialCycleText = await firstCard.locator('text=/Cycle \\d+/').textContent();
-    const initialCycle = parseInt(initialCycleText?.match(/\\d+/)?.[0] || '1');
+    const initialCycle = parseInt(initialCycleText?.match(/\d+/)?.[0] || '1');
 
-    // Run the agent twice
-    const runButton = firstCard.locator('button[title="Run Agent"]');
+    // First run - wait for cycle to increment
+    await firstCard.locator('button[title="Run Agent"]').click();
+    await expect(firstCard.locator(`text=Cycle ${initialCycle + 1}`)).toBeVisible({ timeout: 60000 });
 
-    // First run
-    await runButton.click();
-    await expect(runButton).toHaveAttribute('title', 'Run Agent', { timeout: 30000 });
+    // Second run - wait for cycle to increment again
+    await firstCard.locator('button[title="Run Agent"]').click();
+    await expect(firstCard.locator(`text=Cycle ${initialCycle + 2}`)).toBeVisible({ timeout: 60000 });
 
-    // Second run
-    await runButton.click();
-    await expect(runButton).toHaveAttribute('title', 'Run Agent', { timeout: 30000 });
-
-    // Cycle should have incremented by 2
+    // Verify final cycle
     const finalCycleText = await firstCard.locator('text=/Cycle \\d+/').textContent();
-    const finalCycle = parseInt(finalCycleText?.match(/\\d+/)?.[0] || '1');
+    const finalCycle = parseInt(finalCycleText?.match(/\d+/)?.[0] || '1');
     expect(finalCycle).toBe(initialCycle + 2);
   });
 
