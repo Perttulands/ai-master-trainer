@@ -86,27 +86,53 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
   },
 ];
 
+const DEFAULT_MODEL = import.meta.env.VITE_LITELLM_MODEL || 'anthropic/claude-4-5-sonnet-aws';
+
 interface ModelState {
-  selectedModelId: string;
-  setSelectedModel: (modelId: string) => void;
-  getSelectedModel: () => ModelInfo | undefined;
+  trainerModelId: string;
+  agentModelId: string;
+  setTrainerModel: (modelId: string) => void;
+  setAgentModel: (modelId: string) => void;
+  getTrainerModel: () => ModelInfo | undefined;
+  getAgentModel: () => ModelInfo | undefined;
 }
 
 export const useModelStore = create<ModelState>()(
   persist(
     (set, get) => ({
-      selectedModelId: import.meta.env.VITE_LITELLM_MODEL || 'anthropic/claude-4-5-sonnet-aws',
+      trainerModelId: DEFAULT_MODEL,
+      agentModelId: DEFAULT_MODEL,
 
-      setSelectedModel: (modelId: string) => {
-        set({ selectedModelId: modelId });
+      setTrainerModel: (modelId: string) => {
+        set({ trainerModelId: modelId });
       },
 
-      getSelectedModel: () => {
-        return AVAILABLE_MODELS.find((m) => m.id === get().selectedModelId);
+      setAgentModel: (modelId: string) => {
+        set({ agentModelId: modelId });
+      },
+
+      getTrainerModel: () => {
+        return AVAILABLE_MODELS.find((m) => m.id === get().trainerModelId);
+      },
+
+      getAgentModel: () => {
+        return AVAILABLE_MODELS.find((m) => m.id === get().agentModelId);
       },
     }),
     {
       name: 'training-camp-model',
+      version: 1,
+      migrate: (persistedState: unknown, version: number) => {
+        if (version === 0) {
+          // Migration from old single-model format
+          const oldState = persistedState as { selectedModelId?: string };
+          return {
+            trainerModelId: oldState.selectedModelId || DEFAULT_MODEL,
+            agentModelId: oldState.selectedModelId || DEFAULT_MODEL,
+          };
+        }
+        return persistedState as ModelState;
+      },
     }
   )
 );

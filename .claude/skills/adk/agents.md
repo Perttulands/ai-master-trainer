@@ -1,6 +1,10 @@
 # Training Camp Agent Implementations
 
-## Master Trainer Agent
+> **NOTE**: These examples show Anthropic SDK patterns for EXPORTED standalone agents.
+> Training Camp runtime uses LiteLLM gateway (`src/api/llm.ts`) instead.
+> See `src/agents/master-trainer.ts` and `src/services/agent-executor.ts` for actual runtime code.
+
+## Master Trainer Agent (Export Example)
 
 The core algorithm that evolves lineages based on user feedback.
 
@@ -84,7 +88,7 @@ Analyze the feedback and generate an evolved configuration.`
 }
 ```
 
-## Lineage Executor Agent
+## Lineage Executor Agent (Export Example)
 
 Executes lineage configurations to produce artifacts.
 

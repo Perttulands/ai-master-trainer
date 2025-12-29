@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Cpu, Sparkles, Zap, Gauge } from 'lucide-react';
+import { ChevronDown, Sparkles, Zap, Gauge, Brain, Bot } from 'lucide-react';
 import { useModelStore, AVAILABLE_MODELS, type ModelInfo } from '../../store/model';
 import { cn } from '../../utils/cn';
 
@@ -27,12 +27,41 @@ const TIER_CONFIG = {
   },
 };
 
-export function ModelSelector() {
-  const { selectedModelId, setSelectedModel, getSelectedModel } = useModelStore();
+const MODE_CONFIG = {
+  trainer: {
+    label: 'Trainer',
+    description: 'Model for evolution and planning',
+    icon: Brain,
+    accentColor: 'text-violet-600',
+    accentBg: 'bg-violet-50',
+    accentBorder: 'border-violet-200',
+  },
+  agent: {
+    label: 'Agent',
+    description: 'Model for generated agents',
+    icon: Bot,
+    accentColor: 'text-sky-600',
+    accentBg: 'bg-sky-50',
+    accentBorder: 'border-sky-200',
+  },
+};
+
+interface ModelSelectorProps {
+  mode: 'trainer' | 'agent';
+}
+
+export function ModelSelector({ mode }: ModelSelectorProps) {
+  const store = useModelStore();
+
+  const selectedModelId = mode === 'trainer' ? store.trainerModelId : store.agentModelId;
+  const setModel = mode === 'trainer' ? store.setTrainerModel : store.setAgentModel;
+  const getModel = mode === 'trainer' ? store.getTrainerModel : store.getAgentModel;
+  const modeConfig = MODE_CONFIG[mode];
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const selectedModel = getSelectedModel();
+  const selectedModel = getModel();
+  const ModeIcon = modeConfig.icon;
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -47,11 +76,9 @@ export function ModelSelector() {
   }, []);
 
   const handleSelect = (model: ModelInfo) => {
-    setSelectedModel(model.id);
+    setModel(model.id);
     setIsOpen(false);
   };
-
-  const tierConfig = selectedModel ? TIER_CONFIG[selectedModel.tier] : TIER_CONFIG['high-end'];
 
   // Group models by tier
   const modelsByTier = {
@@ -66,22 +93,28 @@ export function ModelSelector() {
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
           'flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors',
-          tierConfig.bgColor,
-          tierConfig.borderColor,
+          modeConfig.accentBg,
+          modeConfig.accentBorder,
           'hover:opacity-80'
         )}
+        title={modeConfig.description}
       >
-        <Cpu className={cn('w-4 h-4', tierConfig.color)} />
-        <span className="font-medium text-gray-700 max-w-[120px] truncate">
-          {selectedModel?.name || 'Select Model'}
+        <ModeIcon className={cn('w-4 h-4', modeConfig.accentColor)} />
+        <span className={cn('text-xs font-semibold', modeConfig.accentColor)}>
+          {modeConfig.label}:
+        </span>
+        <span className="font-medium text-gray-700 max-w-[100px] truncate">
+          {selectedModel?.name || 'Select'}
         </span>
         <ChevronDown className={cn('w-4 h-4 text-gray-400 transition-transform', isOpen && 'rotate-180')} />
       </button>
 
       {isOpen && (
         <div className="absolute top-full left-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50 overflow-hidden">
-          <div className="p-2 border-b border-gray-100 bg-gray-50">
-            <p className="text-xs text-gray-500 font-medium">Select Model for Agent Training</p>
+          <div className={cn('p-2 border-b border-gray-100', modeConfig.accentBg)}>
+            <p className={cn('text-xs font-medium', modeConfig.accentColor)}>
+              {modeConfig.label} Model: {modeConfig.description}
+            </p>
           </div>
 
           <div className="max-h-96 overflow-y-auto">

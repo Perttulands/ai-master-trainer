@@ -274,7 +274,7 @@ async function extractLearning(
     const pattern = `${change.changeType} ${change.component}: ${change.target}`;
 
     // Check if this pattern already exists
-    let insight = findInsightByPattern(sessionId, pattern);
+    const insight = findInsightByPattern(sessionId, pattern);
 
     if (insight) {
       // Update existing insight

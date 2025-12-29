@@ -1,21 +1,43 @@
-import { Lock, Unlock, Maximize2, MessageSquare, Eye } from 'lucide-react';
+import { Lock, Unlock, Maximize2, MessageSquare, Eye, Play, AlertCircle } from 'lucide-react';
 import { Card, CardHeader, CardContent, CardFooter, Badge, ScoreSlider } from '../ui';
 import { cn } from '../../utils/cn';
-import type { LineageWithArtifact } from '../../types';
+import type { LineageWithArtifact, ArtifactMetadata } from '../../types';
 import { useLineageStore } from '../../store/lineages';
 import { useUIStore } from '../../store/ui';
 
 interface LineageCardProps {
   lineage: LineageWithArtifact;
   onViewAgent?: (lineageId: string) => void;
+  onRun?: (lineageId: string) => void;
+  isRunning?: boolean;
 }
 
-export function LineageCard({ lineage, onViewAgent }: LineageCardProps) {
+export function LineageCard({ lineage, onViewAgent, onRun, isRunning }: LineageCardProps) {
   const { toggleLock, setScore } = useLineageStore();
   const { expandCard, openDirectivesForLineage } = useUIStore();
 
   const hasDirective = lineage.directiveSticky || lineage.directiveOneshot;
-  const preview = lineage.currentArtifact?.content.slice(0, 200) || 'No content yet';
+
+  const getPreview = () => {
+    const artifact = lineage.currentArtifact;
+    if (!artifact) return { text: 'No output yet', isError: false };
+
+    const metadata = artifact.metadata as ArtifactMetadata | null;
+
+    if (metadata?.executionSuccess === false) {
+      const errorMsg = metadata.error
+        ? `Execution failed: ${metadata.error}`
+        : 'Execution failed';
+      return { text: errorMsg, isError: true };
+    }
+
+    return {
+      text: artifact.content?.slice(0, 200) || 'Empty response',
+      isError: false,
+    };
+  };
+
+  const { text: preview, isError: previewIsError } = getPreview();
 
   return (
     <Card
@@ -33,11 +55,18 @@ export function LineageCard({ lineage, onViewAgent }: LineageCardProps) {
               lineage.label === 'A' && 'bg-blue-500',
               lineage.label === 'B' && 'bg-purple-500',
               lineage.label === 'C' && 'bg-orange-500',
-              lineage.label === 'D' && 'bg-teal-500'
+              lineage.label === 'D' && 'bg-teal-500',
+              lineage.label === 'E' && 'bg-pink-500',
+              lineage.label === 'F' && 'bg-indigo-500',
+              lineage.label === 'G' && 'bg-emerald-500',
+              lineage.label === 'H' && 'bg-amber-500'
             )}
           >
             {lineage.label}
           </span>
+          <Badge variant="secondary" className="text-xs">
+            Cycle {lineage.cycle}
+          </Badge>
           {lineage.strategyTag && (
             <Badge variant="default">{lineage.strategyTag}</Badge>
           )}
@@ -50,6 +79,21 @@ export function LineageCard({ lineage, onViewAgent }: LineageCardProps) {
               title="Has directive"
             >
               <MessageSquare className="w-4 h-4" />
+            </button>
+          )}
+          {onRun && (
+            <button
+              onClick={() => onRun(lineage.id)}
+              disabled={isRunning}
+              className={cn(
+                'p-1.5 rounded-lg transition-colors',
+                isRunning
+                  ? 'text-amber-500 bg-amber-50'
+                  : 'text-gray-400 hover:text-amber-600 hover:bg-amber-50'
+              )}
+              title={isRunning ? 'Running...' : 'Run Agent'}
+            >
+              <Play className={cn('w-4 h-4', isRunning && 'animate-pulse')} />
             </button>
           )}
           <button
@@ -86,9 +130,20 @@ export function LineageCard({ lineage, onViewAgent }: LineageCardProps) {
       </CardHeader>
 
       <CardContent className="flex-1 overflow-hidden">
-        <div className="text-sm text-gray-600 line-clamp-6 whitespace-pre-wrap">
+        <div
+          className={cn(
+            'text-sm line-clamp-6 whitespace-pre-wrap',
+            previewIsError ? 'text-red-600' : 'text-gray-600'
+          )}
+        >
+          {previewIsError && (
+            <AlertCircle className="w-4 h-4 inline-block mr-1 -mt-0.5" />
+          )}
           {preview}
-          {lineage.currentArtifact && lineage.currentArtifact.content.length > 200 && '...'}
+          {!previewIsError &&
+            lineage.currentArtifact &&
+            lineage.currentArtifact.content.length > 200 &&
+            '...'}
         </div>
       </CardContent>
 
@@ -107,9 +162,6 @@ export function LineageCard({ lineage, onViewAgent }: LineageCardProps) {
             </span>
           </div>
         )}
-        <div className="text-xs text-gray-400 text-center">
-          Cycle {lineage.cycle}
-        </div>
       </CardFooter>
     </Card>
   );

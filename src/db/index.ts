@@ -5,6 +5,46 @@ let db: Database | null = null;
 
 const DB_STORAGE_KEY = 'training-camp-db';
 
+/**
+ * Convert Uint8Array to Base64 string using chunked processing.
+ * This avoids stack overflow that occurs when using spread operator
+ * on large arrays (> ~10KB).
+ */
+export function uint8ArrayToBase64(data: Uint8Array): string {
+  if (data.length === 0) return '';
+
+  const CHUNK_SIZE = 8192;
+  let binary = '';
+  for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+    const chunk = data.subarray(i, Math.min(i + CHUNK_SIZE, data.length));
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Convert Base64 string back to Uint8Array.
+ */
+export function base64ToUint8Array(base64: string): Uint8Array {
+  if (base64 === '') return new Uint8Array(0);
+
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// Testing helpers
+export function _setDbForTesting(database: Database | null): void {
+  db = database;
+}
+
+export function _getDbForTesting(): Database | null {
+  return db;
+}
+
 export async function initDatabase(): Promise<Database> {
   if (db) return db;
 
@@ -25,7 +65,7 @@ export async function initDatabase(): Promise<Database> {
   const savedData = localStorage.getItem(DB_STORAGE_KEY);
   if (savedData) {
     try {
-      const data = Uint8Array.from(atob(savedData), (c) => c.charCodeAt(0));
+      const data = base64ToUint8Array(savedData);
       db = new SQL.Database(data);
     } catch (e) {
       console.warn('Failed to load saved database, creating new one:', e);
@@ -106,14 +146,20 @@ export function getDatabase(): Database {
 }
 
 export function saveDatabase(): void {
-  if (!db) return;
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  const data = db.export();
+  const base64 = uint8ArrayToBase64(data);
 
   try {
-    const data = db.export();
-    const base64 = btoa(String.fromCharCode(...data));
     localStorage.setItem(DB_STORAGE_KEY, base64);
   } catch (e) {
-    console.error('Failed to save database:', e);
+    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+      throw new Error('Storage quota exceeded. Export your data or clear old sessions.');
+    }
+    throw e;
   }
 }
 

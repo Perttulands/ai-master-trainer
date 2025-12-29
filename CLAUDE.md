@@ -2,14 +2,18 @@
 
 ## Project Overview
 
-Training Camp enables non-technical users to create and improve AI agents through expressing needs and evaluating outputs. Users review 4 parallel agent outputs (artifacts), score them 1-10, lock winners, and regenerate the rest.
+Training Camp enables non-technical users to create and improve AI agents through expressing needs and evaluating outputs.
+
+**Two operational modes:**
+1. **Quick Start**: Single agent, freeform feedback, fast iteration for concept validation
+2. **Full Training**: 4 parallel lineages (A/B/C/D), score outputs 1-10, lock winners, regenerate the rest
 
 **Key distinction**: The system trains **Agents** (configurations), not text. Users evaluate **Artifacts** (agent outputs), which drives **Agent** evolution.
 
 See `docs/` for detailed specifications:
-- `docs/CONTEXT-RECOVERY.md` - **Start here after context reset**
 - `docs/PRD.md` - Product requirements and user journeys
 - `docs/ARCHITECTURE.md` - Data models and system flow
+- `docs/SPEC-agent-evolution.md` - Evolution pipeline specification
 - `docs/UI-flowchart-viewer.md` - Agent viewer UI spec
 
 ## Tech Stack
@@ -19,8 +23,8 @@ See `docs/` for detailed specifications:
 - **State**: Zustand
 - **Routing**: React Router DOM v7
 - **Database**: sql.js (SQLite in browser)
-- **AI Agents**: Anthropic Agent SDK (@anthropic-ai/sdk)
-- **LLM Backend**: Claude API + LiteLLM (for multi-model support)
+- **LLM Runtime**: LiteLLM gateway (OpenAI-compatible API for multi-model support)
+- **Agent Export**: Anthropic SDK (for standalone exported code only, not runtime)
 - **Icons**: Lucide React
 
 ## Installed Plugins
@@ -41,16 +45,19 @@ See `docs/` for detailed specifications:
 ```
 
 - **Master Trainer (Algorithm)**: Evolves lineages based on user scores/feedback
-- **Store (SQLite)**: Sessions, lineages, artifacts, evaluations, audit log
-- **Runner (ADK Agents)**: Executes lineage generation, produces artifacts
+- **Store (SQLite)**: Sessions, lineages, agents, artifacts, evaluations
+- **Agent Executor (Runner)**: Executes agents with flow/tool support
 
 ## Key Concepts
 
-- **Session**: A training workspace for a single objective
-- **Lineage**: A persistent evolutionary branch (A/B/C/D)
-- **Artifact**: Output produced by a lineage for a given cycle
+- **Session**: A training workspace for a single objective (Quick Start or Training mode)
+- **Lineage**: A persistent evolutionary branch (A/B/C/D in training mode)
+- **Prototype**: The single agent in Quick Start mode before promotion
+- **Agent**: The AI system being trained (prompt + tools + flow + config)
+- **Artifact**: Output produced by an agent for a given cycle
 - **Cycle**: One iteration of generate → evaluate → evolve
 - **Directive**: User guidance for a specific lineage (sticky or one-shot)
+- **Promotion**: Converting a Quick Start prototype into 4 training lineages
 
 ## Project Structure
 
@@ -137,6 +144,43 @@ CREATE TABLE audit_log (
 );
 ```
 
+## Engineering Philosophy
+
+### No Mocks, No Fakes, Proper Errors
+
+**Core principle**: If something doesn't work, it should fail clearly - not pretend to work.
+
+1. **No mock implementations** - Don't create fake versions of features that "simulate" real behavior
+2. **Real or nothing** - Either implement a feature properly or don't implement it at all
+3. **Clear errors over silent failures** - When something fails, surface it to the user with context
+4. **No simulated outputs** - All agent outputs must come from actual LLM execution
+
+**Example - Tools**:
+- ❌ Bad: "tools" that are just LLM calls with different prompts pretending to be real tools
+- ✅ Good: No tools until we can implement real, deterministic tool execution
+- ✅ Good: Clear error message if a feature requires backend support we don't have
+
+**Example - Agent Execution**:
+- ❌ Bad: `generateFallbackOutput()` that creates fake content when LLM fails
+- ✅ Good: Let the error propagate so user knows execution failed
+- ✅ Good: Show "Execution failed: [reason]" in the UI
+
+**Why this matters for Training Camp**:
+- Training signal quality depends on real agent behavior
+- Users can't meaningfully compare agents if outputs are fake
+- Mocks create false confidence and hide real issues
+
+### Current Architectural Decisions
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Agent tools | Disabled | All agents have `tools: []`. Real tool support requires backend. |
+| Flow execution | Disabled | All agents use direct LLM execution. Flows had broken templates. |
+| Web search | Not available | Requires backend proxy for CORS |
+| File generation | Not available | Requires heavy libraries or backend |
+
+See `docs/PLAN-tool-architecture-cleanup.md` for the full tool architecture plan.
+
 ## Coding Conventions
 
 ### TypeScript
@@ -191,28 +235,17 @@ const response = await fetch(`${LITELLM_API_BASE}/v1/chat/completions`, {
 });
 ```
 
-## Anthropic Agent SDK Pattern
+## LLM Architecture
 
-```typescript
-import Anthropic from '@anthropic-ai/sdk';
+**Runtime**: All LLM calls go through LiteLLM gateway (`src/api/llm.ts`)
+- Multi-model support (Claude, GPT, Gemini via model IDs like `anthropic/claude-4-5-sonnet-aws`)
+- Unified OpenAI-compatible API format
+- DO NOT use Anthropic SDK directly for runtime execution
 
-const client = new Anthropic();
-
-// Tool-using agent pattern
-const response = await client.messages.create({
-  model: 'claude-sonnet-4-20250514',
-  max_tokens: 1024,
-  tools: [{ name: 'analyze_scores', ... }],
-  messages: [{ role: 'user', content: 'Evolve this lineage...' }]
-});
-
-// Handle tool calls in agentic loop
-if (response.stop_reason === 'tool_use') {
-  // Execute tools and continue conversation
-}
-```
-
-For new agent projects, use `/new-sdk-app` command.
+**Export**: Generated standalone code uses Anthropic SDK (`src/lib/export/to-typescript.ts`)
+- Users can export agents to run independently outside Training Camp
+- Exported code requires user's own `ANTHROPIC_API_KEY`
+- This is the ONLY place Anthropic SDK is used
 
 ## Testing Approach
 
@@ -223,11 +256,13 @@ For new agent projects, use `/new-sdk-app` command.
 
 ## Environment Variables
 
-Required in `.env`:
-- `ANTHROPIC_API_KEY` - Claude API access
-- `GOOGLE_API_KEY` - Gemini / ADK access
-- `LITELLM_API_KEY` - LiteLLM proxy access
-- `LITELLM_API_BASE` - LiteLLM endpoint URL
+Required in `.env` for runtime:
+- `VITE_LITELLM_API_KEY` - LiteLLM proxy access
+- `VITE_LITELLM_API_BASE` - LiteLLM endpoint URL
+- `VITE_LITELLM_MODEL` - Default model ID (optional)
+
+Only needed for exported standalone code (not runtime):
+- `ANTHROPIC_API_KEY` - Required by exported agents, not by Training Camp itself
 
 ## Training Signal Capture
 
@@ -247,18 +282,29 @@ recordLineageLocked(lineageId, competitorIds)
 recordAgentEvolved(fromAgent, toAgent, changes, hypothesis)
 ```
 
-## Flow & Tool Execution
+## Agent Execution
 
-Agents can define multi-step flows with tool calls:
+**Current execution mode**: Direct LLM execution (no flows, no tools)
 
-**Flow execution** (`src/services/flow/`):
+All agents execute via `executeSinglePromptDirect()` in `src/services/agent-executor.ts`:
+- System prompt + user input → LLM → output
+- No intermediate steps, no tool calls
+- Clean, comparable, real outputs
+
+**Why not flows/tools?**
+- Flow system had hardcoded templates that ignored user input (bug)
+- "Tools" were fake LLM wrappers, not real tool execution
+- See `docs/PLAN-tool-architecture-cleanup.md` for the full story
+
+**Flow execution code** (`src/services/flow/`) - preserved for future use:
 - `executeFlow(agent, input, attemptId)` - Run agent's flow
 - Supports: start, prompt, tool, condition, loop, output steps
+- Currently bypassed because agents have `flow: []`
 
-**Tool execution** (`src/services/tools/`):
+**Tool execution code** (`src/services/tools/`) - preserved for future use:
 - `toolRegistry.register(implementation)` - Register tools
 - `executeToolCalls(calls, options)` - Run tool calls
-- Built-in tools: web_search, format_markdown, analyze_data, brainstorm
+- Currently unused because agents have `tools: []`
 
 ## Evolution Pipeline
 

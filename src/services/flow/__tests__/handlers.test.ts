@@ -421,6 +421,75 @@ describe('Flow Step Handlers', () => {
       expect(result.nextStepId).toBe('error-handler');
       expect(context.variables['error']).toBe('Tool failed');
     });
+
+    it('should support "parameters" config format (used by flowLayout demo)', async () => {
+      const step = createTestStep({
+        type: 'tool',
+        config: {
+          toolName: 'web_search',
+          parameters: { query: '{{input}}' },
+        },
+        connections: { next: 'step-2' },
+      });
+      const context = createTestContext();
+      context.variables['input'] = 'test query';
+
+      const result = await stepHandlers.tool(step, context);
+
+      expect(mockExecuteToolCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          arguments: { query: 'test query' },
+        }),
+        expect.any(Object)
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should support "inputMapping" config format (used by flow-templates)', async () => {
+      const step = createTestStep({
+        type: 'tool',
+        config: {
+          toolName: 'search',
+          inputMapping: '{{promptOutput}}',
+        },
+        connections: { next: 'step-2' },
+      });
+      const context = createTestContext();
+      context.variables['promptOutput'] = 'mapped value';
+
+      const result = await stepHandlers.tool(step, context);
+
+      expect(mockExecuteToolCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          arguments: { input: 'mapped value' },
+        }),
+        expect.any(Object)
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should prioritize "args" over "parameters" and "inputMapping"', async () => {
+      const step = createTestStep({
+        type: 'tool',
+        config: {
+          toolName: 'test_tool',
+          args: { primary: 'value' },
+          parameters: { secondary: 'ignored' },
+          inputMapping: '{{ignored}}',
+        },
+        connections: { next: 'step-2' },
+      });
+      const context = createTestContext();
+
+      await stepHandlers.tool(step, context);
+
+      expect(mockExecuteToolCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          arguments: { primary: 'value' },
+        }),
+        expect.any(Object)
+      );
+    });
   });
 
   describe('condition handler', () => {
@@ -682,18 +751,21 @@ describe('Flow Step Handlers', () => {
       expect(result.output).toBe('Default output');
     });
 
-    it('should fall back to input if no lastOutput', async () => {
+    it('should NOT fall back to input if no lastOutput (to avoid leaking internal prompts)', async () => {
+      // This behavior prevents leaking internal test prompts like "Please demonstrate your capabilities..."
       const step = createTestStep({
         type: 'output',
         config: {},
       });
-      const context = createTestContext({ input: 'Original input' });
-      // The output handler checks variables['input'] which is set by start step
-      context.variables['input'] = 'Original input';
+      const context = createTestContext({ input: 'Please demonstrate your capabilities...' });
+      // The input might contain internal test prompts that should never be shown to users
+      context.variables['input'] = 'Please demonstrate your capabilities...';
+      // No lastOutput set
 
       const result = await stepHandlers.output(step, context);
 
-      expect(result.output).toBe('Original input');
+      // Should return empty string, not the internal test input
+      expect(result.output).toBe('');
     });
 
     it('should create a span for the output step', async () => {

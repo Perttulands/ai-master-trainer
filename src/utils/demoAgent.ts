@@ -1,81 +1,31 @@
-import type { AgentDefinition, AgentFlowStep, AgentTool } from '../types/agent';
+import type { AgentDefinition } from '../types/agent';
 import { generateId } from './id';
-import { getDefaultDemoFlow } from './flowLayout';
+import { getDirectExecutionFlow } from './flowLayout';
 
 /**
  * Strategy tags and their associated configurations
+ * NOTE: tools removed - all agents use direct LLM execution with tools: []
+ * See docs/PLAN-tool-architecture-cleanup.md for rationale
  */
 const STRATEGY_CONFIGS: Record<string, {
   description: string;
   systemPromptPrefix: string;
-  tools: AgentTool[];
-  flowModifier?: (baseFlow: AgentFlowStep[]) => AgentFlowStep[];
 }> = {
   Concise: {
     description: 'Focused on delivering clear, brief responses without unnecessary details.',
     systemPromptPrefix: 'You are a concise AI assistant. Keep responses short and to the point.',
-    tools: [],
-    flowModifier: (flow) => flow.filter(s => s.type !== 'loop'), // Simpler flow
   },
   Detailed: {
     description: 'Provides comprehensive, well-structured responses with examples.',
     systemPromptPrefix: 'You are a detailed AI assistant. Provide thorough explanations with examples.',
-    tools: [
-      {
-        id: generateId(),
-        name: 'format_markdown',
-        description: 'Format response as structured markdown',
-        type: 'builtin',
-        config: { builtinName: 'format_markdown' },
-        parameters: [
-          { name: 'content', type: 'string', description: 'Content to format', required: true },
-          { name: 'style', type: 'string', description: 'Formatting style', required: false },
-        ],
-      },
-    ],
   },
   Interactive: {
     description: 'Engages in dialog, asks clarifying questions, and adapts to feedback.',
     systemPromptPrefix: 'You are an interactive AI assistant. Engage in dialog and ask clarifying questions.',
-    tools: [
-      {
-        id: generateId(),
-        name: 'ask_clarification',
-        description: 'Ask user for clarification',
-        type: 'function',
-        config: { code: 'return { question: args.question }' },
-        parameters: [
-          { name: 'question', type: 'string', description: 'Clarifying question', required: true },
-        ],
-      },
-    ],
   },
   Analytical: {
     description: 'Approaches tasks methodically with step-by-step reasoning.',
     systemPromptPrefix: 'You are an analytical AI assistant. Break down problems step by step.',
-    tools: [
-      {
-        id: generateId(),
-        name: 'web_search',
-        description: 'Search the web for information',
-        type: 'api',
-        config: { endpoint: 'https://api.search.com/v1/search', method: 'GET' },
-        parameters: [
-          { name: 'query', type: 'string', description: 'Search query', required: true },
-          { name: 'max_results', type: 'number', description: 'Max results to return', required: false },
-        ],
-      },
-      {
-        id: generateId(),
-        name: 'analyze_data',
-        description: 'Analyze structured data',
-        type: 'function',
-        config: { code: 'return analyzeData(args.data)' },
-        parameters: [
-          { name: 'data', type: 'object', description: 'Data to analyze', required: true },
-        ],
-      },
-    ],
   },
 };
 
@@ -101,10 +51,8 @@ export function generateDemoAgent(
   const strategyConfig = STRATEGY_CONFIGS[labelConfig.strategy] || STRATEGY_CONFIGS['Concise'];
 
   const now = Date.now();
-  const baseFlow = getDefaultDemoFlow();
-  const flow = strategyConfig.flowModifier
-    ? strategyConfig.flowModifier(baseFlow)
-    : baseFlow;
+  // Use direct execution mode - no flows
+  const flow = getDirectExecutionFlow();
 
   // Create a tailored system prompt
   const systemPrompt = `${strategyConfig.systemPromptPrefix}
@@ -114,7 +62,6 @@ Your task: ${sessionNeed}
 Guidelines:
 - Follow the user's instructions carefully
 - Provide accurate and helpful responses
-- Use available tools when appropriate
 - Maintain consistent quality across interactions
 
 When in doubt, prioritize clarity and usefulness.`;
@@ -125,7 +72,7 @@ When in doubt, prioritize clarity and usefulness.`;
     description: strategyConfig.description,
     version: 1,
     systemPrompt,
-    tools: strategyConfig.tools,
+    tools: [],  // No tools - direct LLM execution only
     flow,
     memory: {
       type: 'buffer',

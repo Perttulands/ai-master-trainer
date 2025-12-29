@@ -13,6 +13,7 @@ interface StrategyDiscussionModalProps {
   onConfirm: (strategies: CustomStrategy[]) => void;
   need: string;
   constraints?: string;
+  agentCount?: 1 | 2 | 4;
 }
 
 export function StrategyDiscussionModal({
@@ -21,9 +22,12 @@ export function StrategyDiscussionModal({
   onConfirm,
   need,
   constraints,
+  agentCount = 4,
 }: StrategyDiscussionModalProps) {
   const [messages, setMessages] = useState<StrategyMessage[]>([]);
-  const [currentStrategies, setCurrentStrategies] = useState<CustomStrategy[]>(DEFAULT_STRATEGIES);
+  const [currentStrategies, setCurrentStrategies] = useState<CustomStrategy[]>(
+    DEFAULT_STRATEGIES.slice(0, agentCount)
+  );
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
@@ -35,25 +39,26 @@ export function StrategyDiscussionModal({
     setHasInitialized(true);
 
     try {
-      const response = await proposeInitialStrategies(need, constraints);
+      const response = await proposeInitialStrategies(need, constraints, agentCount);
       setMessages([response]);
       if (response.proposedStrategies) {
-        setCurrentStrategies(response.proposedStrategies);
+        setCurrentStrategies(response.proposedStrategies.slice(0, agentCount));
       }
     } catch (error) {
       console.error('Failed to initialize strategy discussion:', error);
       // Use default strategies on error
+      const defaultStrategiesForCount = DEFAULT_STRATEGIES.slice(0, agentCount);
       setMessages([{
         id: generateId(),
         role: 'assistant',
-        content: "I'll help you with strategy selection. Here are the default strategies to get started. Feel free to modify them:",
+        content: `I'll help you with strategy selection. Here are ${agentCount} strategy option${agentCount > 1 ? 's' : ''} to get started. Feel free to modify them:`,
         timestamp: Date.now(),
-        proposedStrategies: DEFAULT_STRATEGIES,
+        proposedStrategies: defaultStrategiesForCount,
       }]);
     } finally {
       setIsLoading(false);
     }
-  }, [need, constraints]);
+  }, [need, constraints, agentCount]);
 
   // Initialize with strategy proposal when modal opens
   useEffect(() => {
@@ -66,11 +71,11 @@ export function StrategyDiscussionModal({
   useEffect(() => {
     if (!isOpen) {
       setMessages([]);
-      setCurrentStrategies(DEFAULT_STRATEGIES);
+      setCurrentStrategies(DEFAULT_STRATEGIES.slice(0, agentCount));
       setHasInitialized(false);
       setInputValue('');
     }
-  }, [isOpen]);
+  }, [isOpen, agentCount]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -141,7 +146,7 @@ export function StrategyDiscussionModal({
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Strategy Discussion</h2>
-              <p className="text-sm text-gray-500">Define 4 unique approaches for your agent</p>
+              <p className="text-sm text-gray-500">Define {agentCount} unique approach{agentCount === 1 ? '' : 'es'} for your agent</p>
             </div>
           </div>
           <Button variant="ghost" size="sm" onClick={handleRegenerate} disabled={isLoading}>
@@ -202,7 +207,7 @@ export function StrategyDiscussionModal({
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Share your thoughts on the strategies..."
-                className="flex-1 px-4 py-3 border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="flex-1 px-4 py-3 border border-gray-200 rounded-xl resize-none focus:outline-none focus:border-primary-500"
                 rows={2}
                 disabled={isLoading}
               />
@@ -247,7 +252,7 @@ export function StrategyDiscussionModal({
                 Confirm & Generate
               </Button>
               <p className="text-xs text-gray-500 text-center mt-2">
-                This will create 4 agents with these strategies
+                This will create {agentCount} agent{agentCount === 1 ? '' : 's'} with {agentCount === 1 ? 'this strategy' : 'these strategies'}
               </p>
             </div>
           </div>

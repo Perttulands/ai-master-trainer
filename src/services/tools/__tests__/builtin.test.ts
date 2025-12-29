@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import {
+  knowledgeQueryTool,
   webSearchTool,
   formatMarkdownTool,
   analyzeDataTool,
@@ -11,16 +12,26 @@ import {
 } from '../builtin';
 import { toolRegistry } from '../registry';
 
+// Mock the LLM module
+vi.mock('../../../api/llm', () => ({
+  generateWithSystem: vi.fn(),
+  isLLMConfigured: vi.fn(() => true),
+}));
+
+import { generateWithSystem, isLLMConfigured } from '../../../api/llm';
+
 describe('Built-in Tools', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     toolRegistry.clear();
+    (isLLMConfigured as Mock).mockReturnValue(true);
   });
 
   describe('registerBuiltinTools()', () => {
     it('should register all builtin tools', () => {
       registerBuiltinTools();
 
+      expect(toolRegistry.has('knowledge_query')).toBe(true);
       expect(toolRegistry.has('web_search')).toBe(true);
       expect(toolRegistry.has('format_markdown')).toBe(true);
       expect(toolRegistry.has('analyze_data')).toBe(true);
@@ -30,69 +41,88 @@ describe('Built-in Tools', () => {
     });
 
     it('should export all tools in builtinTools array', () => {
+      expect(builtinTools).toContain(knowledgeQueryTool);
       expect(builtinTools).toContain(webSearchTool);
       expect(builtinTools).toContain(formatMarkdownTool);
       expect(builtinTools).toContain(analyzeDataTool);
       expect(builtinTools).toContain(brainstormTool);
       expect(builtinTools).toContain(calculateTool);
       expect(builtinTools).toContain(summarizeTool);
-      expect(builtinTools.length).toBe(6);
+      expect(builtinTools.length).toBe(7); // Now includes knowledge_query
     });
   });
 
-  describe('webSearchTool', () => {
+  describe('knowledgeQueryTool', () => {
     it('should have correct name and description', () => {
-      expect(webSearchTool.name).toBe('web_search');
-      expect(webSearchTool.description).toContain('Search the web');
+      expect(knowledgeQueryTool.name).toBe('knowledge_query');
+      expect(knowledgeQueryTool.description).toContain('knowledge');
     });
 
-    it('should return search results for valid query', async () => {
-      const result = await webSearchTool.execute({
+    it('should return knowledge results for valid query', async () => {
+      const mockResponse = JSON.stringify({
+        query: 'artificial intelligence',
+        summary: 'AI is a field of computer science.',
+        details: ['Detail 1', 'Detail 2'],
+        relatedTopics: ['Machine Learning'],
+        confidence: 'high',
+        caveat: null,
+      });
+      (generateWithSystem as Mock).mockResolvedValue(mockResponse);
+
+      const result = await knowledgeQueryTool.execute({
         args: { query: 'artificial intelligence' },
       });
 
       expect(result.success).toBe(true);
       expect(result.output).toBeDefined();
-
-      const output = result.output as {
-        query: string;
-        totalResults: number;
-        results: Array<{ title: string; url: string; snippet: string }>;
-      };
-      expect(output.query).toBe('artificial intelligence');
-      expect(output.totalResults).toBeGreaterThan(0);
-      expect(output.results).toBeInstanceOf(Array);
-      expect(output.results[0]).toHaveProperty('title');
-      expect(output.results[0]).toHaveProperty('url');
-      expect(output.results[0]).toHaveProperty('snippet');
+      expect((result.output as { query: string }).query).toBe('artificial intelligence');
+      expect(result.metadata?.source).toBe('llm-knowledge');
     });
 
     it('should return error for empty query', async () => {
-      const result = await webSearchTool.execute({
+      const result = await knowledgeQueryTool.execute({
         args: { query: '' },
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Search query is required');
+      expect(result.error).toBe('Query is required');
     });
 
-    it('should return error for whitespace-only query', async () => {
-      const result = await webSearchTool.execute({
-        args: { query: '   ' },
+    it('should return error when LLM not configured', async () => {
+      (isLLMConfigured as Mock).mockReturnValue(false);
+
+      const result = await knowledgeQueryTool.execute({
+        args: { query: 'test' },
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Search query is required');
+      expect(result.error).toContain('LLM not configured');
+    });
+  });
+
+  describe('webSearchTool (alias for knowledge_query)', () => {
+    it('should have correct name and description', () => {
+      expect(webSearchTool.name).toBe('web_search');
+      expect(webSearchTool.description).toContain('Search');
     });
 
-    it('should include metadata with execution time', async () => {
+    it('should delegate to knowledge_query and add note', async () => {
+      const mockResponse = JSON.stringify({
+        query: 'test',
+        summary: 'Test summary',
+        details: [],
+        relatedTopics: [],
+        confidence: 'medium',
+        caveat: null,
+      });
+      (generateWithSystem as Mock).mockResolvedValue(mockResponse);
+
       const result = await webSearchTool.execute({
         args: { query: 'test' },
       });
 
-      expect(result.metadata).toBeDefined();
-      expect(result.metadata?.executionTimeMs).toBeDefined();
-      expect(result.metadata?.source).toBe('simulated');
+      expect(result.success).toBe(true);
+      expect(result.metadata?.note).toContain('AI knowledge');
     });
   });
 
@@ -102,17 +132,7 @@ describe('Built-in Tools', () => {
       expect(formatMarkdownTool.description).toContain('markdown');
     });
 
-    it('should format content as document by default', async () => {
-      const result = await formatMarkdownTool.execute({
-        args: { content: 'First paragraph\n\nSecond paragraph' },
-      });
-
-      expect(result.success).toBe(true);
-      const output = result.output as { formatted: string };
-      expect(output.formatted).toContain('#');
-    });
-
-    it('should format content as list', async () => {
+    it('should format content as list (deterministic)', async () => {
       const result = await formatMarkdownTool.execute({
         args: { content: 'item1, item2, item3', format: 'list' },
       });
@@ -124,7 +144,7 @@ describe('Built-in Tools', () => {
       expect(output.formatted).toContain('- item3');
     });
 
-    it('should format content as table', async () => {
+    it('should format content as table (deterministic)', async () => {
       const result = await formatMarkdownTool.execute({
         args: { content: 'a,b,c\n1,2,3', format: 'table' },
       });
@@ -135,7 +155,7 @@ describe('Built-in Tools', () => {
       expect(output.formatted).toContain('---');
     });
 
-    it('should format content as code block', async () => {
+    it('should format content as code block (deterministic)', async () => {
       const result = await formatMarkdownTool.execute({
         args: { content: 'const x = 1;', format: 'code', language: 'javascript' },
       });
@@ -147,7 +167,7 @@ describe('Built-in Tools', () => {
       expect(output.formatted).toContain('```');
     });
 
-    it('should format content as blockquote', async () => {
+    it('should format content as blockquote (deterministic)', async () => {
       const result = await formatMarkdownTool.execute({
         args: { content: 'A famous quote', format: 'blockquote' },
       });
@@ -155,6 +175,18 @@ describe('Built-in Tools', () => {
       expect(result.success).toBe(true);
       const output = result.output as { formatted: string };
       expect(output.formatted).toContain('> A famous quote');
+    });
+
+    it('should use LLM for document format when configured', async () => {
+      (generateWithSystem as Mock).mockResolvedValue('# Formatted\n\nContent here');
+
+      const result = await formatMarkdownTool.execute({
+        args: { content: 'Some content to format', format: 'document' },
+      });
+
+      expect(result.success).toBe(true);
+      expect(generateWithSystem).toHaveBeenCalled();
+      expect(result.metadata?.source).toBe('llm');
     });
 
     it('should return error for empty content', async () => {
@@ -165,17 +197,6 @@ describe('Built-in Tools', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe('Content is required for formatting');
     });
-
-    it('should include original and formatted content in output', async () => {
-      const result = await formatMarkdownTool.execute({
-        args: { content: 'test content', format: 'list' },
-      });
-
-      expect(result.success).toBe(true);
-      const output = result.output as { original: string; formatted: string; format: string };
-      expect(output.original).toBe('test content');
-      expect(output.format).toBe('list');
-    });
   });
 
   describe('analyzeDataTool', () => {
@@ -184,60 +205,51 @@ describe('Built-in Tools', () => {
       expect(analyzeDataTool.description).toContain('Analyze data');
     });
 
-    it('should return summary analysis by default', async () => {
+    it('should return analysis from LLM', async () => {
+      const mockResponse = JSON.stringify({
+        summary: 'Data analysis complete.',
+        insights: ['Insight 1', 'Insight 2'],
+        statistics: { count: 10, avg: 5.5 },
+        recommendations: ['Recommendation 1'],
+      });
+      (generateWithSystem as Mock).mockResolvedValue(mockResponse);
+
       const result = await analyzeDataTool.execute({
         args: { data: 'some sample data for analysis' },
       });
 
       expect(result.success).toBe(true);
-      const output = result.output as {
-        summary: string;
-        insights: string[];
-        statistics: Record<string, number>;
-      };
+      const output = result.output as { summary: string; insights: string[] };
       expect(output.summary).toBeDefined();
       expect(output.insights).toBeInstanceOf(Array);
-      expect(output.statistics).toBeDefined();
+      expect(result.metadata?.source).toBe('llm');
     });
 
-    it('should return sentiment analysis when type is sentiment', async () => {
+    it('should return error when LLM not configured', async () => {
+      (isLLMConfigured as Mock).mockReturnValue(false);
+
+      const result = await analyzeDataTool.execute({
+        args: { data: 'test data' },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('LLM not configured');
+    });
+
+    it('should include analysis type in metadata', async () => {
+      const mockResponse = JSON.stringify({
+        summary: 'Sentiment analysis',
+        insights: [],
+        statistics: { positive: 0.8, neutral: 0.15, negative: 0.05 },
+        recommendations: [],
+      });
+      (generateWithSystem as Mock).mockResolvedValue(mockResponse);
+
       const result = await analyzeDataTool.execute({
         args: { data: 'I love this product!', type: 'sentiment' },
       });
 
-      expect(result.success).toBe(true);
-      const output = result.output as {
-        summary: string;
-        statistics: { positive: number; neutral: number; negative: number };
-      };
-      expect(output.summary).toContain('Sentiment');
-      expect(output.statistics).toHaveProperty('positive');
-      expect(output.statistics).toHaveProperty('neutral');
-      expect(output.statistics).toHaveProperty('negative');
-    });
-
-    it('should return trend analysis when type is trend', async () => {
-      const result = await analyzeDataTool.execute({
-        args: { data: '10,20,30,40,50', type: 'trend' },
-      });
-
-      expect(result.success).toBe(true);
-      const output = result.output as {
-        summary: string;
-        statistics: { growthRate: number; trendStrength: number };
-      };
-      expect(output.summary).toContain('Trend');
-      expect(output.statistics).toHaveProperty('growthRate');
-      expect(output.statistics).toHaveProperty('trendStrength');
-    });
-
-    it('should include metadata with execution info', async () => {
-      const result = await analyzeDataTool.execute({
-        args: { data: 'test data', type: 'summary' },
-      });
-
-      expect(result.metadata).toBeDefined();
-      expect(result.metadata?.analysisType).toBe('summary');
+      expect(result.metadata?.analysisType).toBe('sentiment');
     });
   });
 
@@ -247,61 +259,25 @@ describe('Built-in Tools', () => {
       expect(brainstormTool.description).toContain('creative ideas');
     });
 
-    it('should generate ideas for a topic', async () => {
+    it('should generate ideas from LLM', async () => {
+      const mockIdeas = [
+        { idea: 'Idea 1', rationale: 'Reason 1', feasibility: 'high', innovationScore: 0.9 },
+        { idea: 'Idea 2', rationale: 'Reason 2', feasibility: 'medium', innovationScore: 0.7 },
+      ];
+      (generateWithSystem as Mock).mockResolvedValue(JSON.stringify(mockIdeas));
+
       const result = await brainstormTool.execute({
         args: { topic: 'productivity apps' },
       });
 
       expect(result.success).toBe(true);
-      const output = result.output as {
-        topic: string;
-        style: string;
-        ideas: Array<{ idea: string; rationale: string }>;
-      };
+      const output = result.output as { topic: string; ideas: typeof mockIdeas };
       expect(output.topic).toBe('productivity apps');
       expect(output.ideas).toBeInstanceOf(Array);
-      expect(output.ideas.length).toBeGreaterThan(0);
+      expect(output.ideas.length).toBe(2);
       expect(output.ideas[0]).toHaveProperty('idea');
       expect(output.ideas[0]).toHaveProperty('rationale');
-      expect(output.ideas[0]).toHaveProperty('feasibility');
-      expect(output.ideas[0]).toHaveProperty('innovationScore');
-    });
-
-    it('should respect count parameter', async () => {
-      const result = await brainstormTool.execute({
-        args: { topic: 'test topic', count: 3 },
-      });
-
-      expect(result.success).toBe(true);
-      const output = result.output as { ideas: unknown[] };
-      expect(output.ideas.length).toBe(3);
-    });
-
-    it('should limit count to maximum of 10', async () => {
-      const result = await brainstormTool.execute({
-        args: { topic: 'test topic', count: 20 },
-      });
-
-      expect(result.success).toBe(true);
-      const output = result.output as { ideas: unknown[] };
-      expect(output.ideas.length).toBeLessThanOrEqual(10);
-    });
-
-    it('should support different styles', async () => {
-      const creativeResult = await brainstormTool.execute({
-        args: { topic: 'innovation', style: 'creative' },
-      });
-      const practicalResult = await brainstormTool.execute({
-        args: { topic: 'innovation', style: 'practical' },
-      });
-
-      expect(creativeResult.success).toBe(true);
-      expect(practicalResult.success).toBe(true);
-
-      const creativeOutput = creativeResult.output as { style: string };
-      const practicalOutput = practicalResult.output as { style: string };
-      expect(creativeOutput.style).toBe('creative');
-      expect(practicalOutput.style).toBe('practical');
+      expect(result.metadata?.source).toBe('llm');
     });
 
     it('should return error for empty topic', async () => {
@@ -312,9 +288,20 @@ describe('Built-in Tools', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe('Topic is required for brainstorming');
     });
+
+    it('should return error when LLM not configured', async () => {
+      (isLLMConfigured as Mock).mockReturnValue(false);
+
+      const result = await brainstormTool.execute({
+        args: { topic: 'test' },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('LLM not configured');
+    });
   });
 
-  describe('calculateTool', () => {
+  describe('calculateTool (deterministic - no LLM)', () => {
     it('should have correct name and description', () => {
       expect(calculateTool.name).toBe('calculate');
       expect(calculateTool.description).toContain('mathematical calculations');
@@ -398,6 +385,14 @@ describe('Built-in Tools', () => {
       expect(output.expression).toBe('1000 + 234');
       expect(output.formatted).toBeDefined();
     });
+
+    it('should NOT call LLM', async () => {
+      await calculateTool.execute({
+        args: { expression: '1 + 1' },
+      });
+
+      expect(generateWithSystem).not.toHaveBeenCalled();
+    });
   });
 
   describe('summarizeTool', () => {
@@ -406,7 +401,9 @@ describe('Built-in Tools', () => {
       expect(summarizeTool.description).toContain('summary');
     });
 
-    it('should generate a summary of content', async () => {
+    it('should generate summary from LLM', async () => {
+      (generateWithSystem as Mock).mockResolvedValue('This is a concise summary of the content.');
+
       const content = 'This is the first sentence. This is the second sentence. And here is a third one.';
       const result = await summarizeTool.execute({
         args: { content },
@@ -414,31 +411,9 @@ describe('Built-in Tools', () => {
 
       expect(result.success).toBe(true);
       const output = result.output as { summary: string; originalLength: number; summaryLength: number };
-      expect(output.summary).toBeDefined();
+      expect(output.summary).toBe('This is a concise summary of the content.');
       expect(output.originalLength).toBe(content.length);
-      // Note: The summarize tool appends metadata to the summary, so we just check it exists
-      expect(output.summaryLength).toBeGreaterThan(0);
-    });
-
-    it('should respect short length parameter', async () => {
-      const content = 'First sentence here. Second sentence follows. Third one too. Fourth sentence. Fifth sentence.';
-      const result = await summarizeTool.execute({
-        args: { content, length: 'short' },
-      });
-
-      expect(result.success).toBe(true);
-      const output = result.output as { summary: string };
-      // Short should have fewer sentences
-      expect(output.summary.split('.').length).toBeLessThanOrEqual(4);
-    });
-
-    it('should respect long length parameter', async () => {
-      const content = 'First. Second. Third. Fourth. Fifth. Sixth. Seventh. Eighth.';
-      const result = await summarizeTool.execute({
-        args: { content, length: 'long' },
-      });
-
-      expect(result.success).toBe(true);
+      expect(result.metadata?.source).toBe('llm');
     });
 
     it('should return error for empty content', async () => {
@@ -450,9 +425,23 @@ describe('Built-in Tools', () => {
       expect(result.error).toBe('Content is required for summarization');
     });
 
-    it('should include compression ratio', async () => {
+    it('should return error when LLM not configured', async () => {
+      (isLLMConfigured as Mock).mockReturnValue(false);
+
       const result = await summarizeTool.execute({
-        args: { content: 'This is a long piece of content that needs to be summarized into something shorter.' },
+        args: { content: 'test content' },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('LLM not configured');
+    });
+
+    it('should include compression ratio', async () => {
+      const longContent = 'This is a long piece of content that needs to be summarized into something shorter.';
+      (generateWithSystem as Mock).mockResolvedValue('Short summary.');
+
+      const result = await summarizeTool.execute({
+        args: { content: longContent },
       });
 
       expect(result.success).toBe(true);

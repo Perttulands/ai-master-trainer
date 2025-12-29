@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Clock, Star } from 'lucide-react';
+import { ArrowLeft, Clock, Star, Bug } from 'lucide-react';
 import { Card, CardContent, Badge } from '../components/ui';
 import { Header } from '../components/layout/Header';
+import { LLMDebugPanel } from '../components/debug';
 import { useSessionStore } from '../store/session';
+import { useLLMDebugStore } from '../store/llm-debug';
 import { getArtifactsByLineage, getLineagesBySession, getEvaluationForArtifact } from '../db/queries';
 import type { Lineage, Artifact, Evaluation } from '../types';
 import { cn } from '../utils/cn';
+
+type HistoryTab = 'artifacts' | 'debug';
 
 interface LineageHistory {
   lineage: Lineage;
@@ -19,6 +23,14 @@ export function History() {
   const { currentSession, loadSession } = useSessionStore();
   const [histories, setHistories] = useState<LineageHistory[]>([]);
   const [selectedLineage, setSelectedLineage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<HistoryTab>('artifacts');
+
+  // Get debug entries for this session
+  const { entries: allDebugEntries, clearEntries } = useLLMDebugStore();
+  const sessionDebugEntries = id
+    ? allDebugEntries.filter((e) => e.sessionId === id)
+    : allDebugEntries;
+  const errorCount = sessionDebugEntries.filter((e) => e.status === 'error').length;
 
   useEffect(() => {
     if (id) {
@@ -59,8 +71,43 @@ export function History() {
           Back to training
         </button>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Session History</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Session History</h1>
 
+        {/* Tab selector */}
+        <div className="flex gap-1 mb-6 border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('artifacts')}
+            className={cn(
+              'px-4 py-2 font-medium text-sm transition-colors border-b-2 -mb-px',
+              activeTab === 'artifacts'
+                ? 'text-primary-600 border-primary-500'
+                : 'text-gray-500 border-transparent hover:text-gray-700'
+            )}
+          >
+            Artifacts
+          </button>
+          <button
+            onClick={() => setActiveTab('debug')}
+            className={cn(
+              'px-4 py-2 font-medium text-sm transition-colors border-b-2 -mb-px flex items-center gap-2',
+              activeTab === 'debug'
+                ? 'text-primary-600 border-primary-500'
+                : 'text-gray-500 border-transparent hover:text-gray-700'
+            )}
+          >
+            <Bug className="w-4 h-4" />
+            LLM Debug
+            {errorCount > 0 && (
+              <Badge variant="danger" className="ml-1">
+                {errorCount}
+              </Badge>
+            )}
+          </button>
+        </div>
+
+        {activeTab === 'debug' ? (
+          <LLMDebugPanel entries={allDebugEntries} onClear={clearEntries} />
+        ) : (
         <div className="flex gap-6">
           {/* Lineage Selector */}
           <div className="w-48 space-y-2">
@@ -187,6 +234,7 @@ export function History() {
             )}
           </div>
         </div>
+        )}
       </main>
     </div>
   );

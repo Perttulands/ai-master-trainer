@@ -985,4 +985,148 @@ describe('Flow Executor', () => {
       expect(result.stepsExecuted).toBe(9);
     });
   });
+
+  describe('Default Demo Flow Bug', () => {
+    it('should NOT return test input as output when using default demo flow', async () => {
+      // This tests the bug where "Please demonstrate your capabilities..." appears as artifact output
+      // The test input is an internal prompt sent TO agents, not meant for user display
+
+      const testInput = 'Please demonstrate your capabilities by responding to this request:\n\nHelp me write a poem\n\nProvide a complete, high-quality response that showcases your approach.';
+
+      // Create the default demo flow (same structure as getDefaultDemoFlow)
+      const flow: AgentFlowStep[] = [
+        createTestStep({
+          id: 'start-1',
+          type: 'start',
+          name: 'Start',
+          config: {},
+          connections: { next: 'prompt-1' },
+        }),
+        createTestStep({
+          id: 'prompt-1',
+          type: 'prompt',
+          name: 'Process Input',
+          config: {
+            template: 'Analyze the user input and determine the best approach.',
+          },
+          connections: { next: 'condition-1' },
+        }),
+        createTestStep({
+          id: 'condition-1',
+          type: 'condition',
+          name: 'Needs Tool?',
+          config: {
+            condition: 'response.requiresTool === true',
+          },
+          connections: { onTrue: 'tool-1', onFalse: 'output-1' },
+        }),
+        createTestStep({
+          id: 'tool-1',
+          type: 'tool',
+          name: 'Execute Tool',
+          config: {
+            toolName: 'web_search',
+            parameters: { query: '{{input}}' },
+          },
+          connections: { next: 'output-1', onError: 'output-1' },
+        }),
+        createTestStep({
+          id: 'output-1',
+          type: 'output',
+          name: 'Generate Response',
+          config: {
+            format: 'markdown',
+          },
+          connections: {},
+        }),
+      ];
+
+      const agent = createTestAgent({ flow });
+      const result = await executeFlow(agent, testInput, 'attempt-123');
+
+      // The output should NEVER contain the test input prompt text
+      expect(result.output).not.toContain('Please demonstrate your capabilities');
+      expect(result.output).not.toContain('Provide a complete, high-quality response');
+
+      // It SHOULD contain the LLM's actual response
+      expect(result.output).toBe('LLM response');
+    });
+
+    it('should NOT return test input even when prompt step fails', async () => {
+      // When LLM fails, we should still not leak the internal test input
+      mockGenerateWithSystem.mockRejectedValueOnce(new Error('LLM API Error'));
+
+      const testInput = 'Please demonstrate your capabilities by responding to this request:\n\nHelp me write a poem\n\nProvide a complete, high-quality response that showcases your approach.';
+
+      const flow: AgentFlowStep[] = [
+        createTestStep({
+          id: 'start-1',
+          type: 'start',
+          config: {},
+          connections: { next: 'prompt-1' },
+        }),
+        createTestStep({
+          id: 'prompt-1',
+          type: 'prompt',
+          config: {
+            template: 'Analyze the user input and determine the best approach.',
+          },
+          connections: { next: 'output-1' },
+        }),
+        createTestStep({
+          id: 'output-1',
+          type: 'output',
+          config: { format: 'markdown' },
+          connections: {},
+        }),
+      ];
+
+      const agent = createTestAgent({ flow });
+      const result = await executeFlow(agent, testInput, 'attempt-123');
+
+      // Even on error, the output should NOT contain the test input
+      expect(result.output).not.toContain('Please demonstrate your capabilities');
+      expect(result.output).not.toContain('Provide a complete, high-quality response');
+    });
+
+    it('should pass user input to LLM, not just the template', async () => {
+      // The actual user need should be sent to the LLM, not just a meta-instruction
+      const userNeed = 'Help me write a poem about the ocean';
+      const testInput = `Please demonstrate your capabilities by responding to this request:\n\n${userNeed}\n\nProvide a complete, high-quality response that showcases your approach.`;
+
+      const flow: AgentFlowStep[] = [
+        createTestStep({
+          id: 'start',
+          type: 'start',
+          config: {},
+          connections: { next: 'prompt' },
+        }),
+        createTestStep({
+          id: 'prompt',
+          type: 'prompt',
+          config: {
+            // Template should include {{input}} to pass user input to LLM
+            template: '{{input}}',
+          },
+          connections: { next: 'output' },
+        }),
+        createTestStep({
+          id: 'output',
+          type: 'output',
+          config: { variable: 'lastOutput' },
+          connections: {},
+        }),
+      ];
+
+      const agent = createTestAgent({ flow });
+      await executeFlow(agent, testInput, 'attempt-123');
+
+      // The LLM should receive the full input (which contains the user's need)
+      expect(mockGenerateWithSystem).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining(userNeed),
+        expect.any(Object)
+      );
+    });
+  });
 });

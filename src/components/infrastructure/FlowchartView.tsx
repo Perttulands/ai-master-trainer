@@ -21,7 +21,7 @@ import {
 import { cn } from '../../utils/cn';
 import { FlowNode } from './FlowNode';
 import { NodeDetailPanel } from './NodeDetailPanel';
-import { convertFlowToLayoutedElements, getDefaultDemoFlow } from '../../utils/flowLayout';
+import { convertFlowToLayoutedElements, getDirectExecutionFlow } from '../../utils/flowLayout';
 import type { AgentFlowStep } from '../../types/agent';
 
 interface FlowchartViewProps {
@@ -58,8 +58,8 @@ function FlowchartViewInner({
   const reactFlow = useReactFlow();
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
 
-  // Use demo flow if no flow provided
-  const actualFlow = flow.length > 0 ? flow : getDefaultDemoFlow();
+  // Use direct execution mode if no flow provided
+  const actualFlow = flow.length > 0 ? flow : getDirectExecutionFlow();
 
   // Convert flow to nodes and edges with layout
   const { nodes: initialNodes, edges } = useMemo(

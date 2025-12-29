@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Wrench, Code, Globe } from 'lucide-react';
+import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
 import type { AgentTool } from '../../types/agent';
 import { Badge } from '../ui/Badge';
 import { cn } from '../../utils/cn';
@@ -9,16 +9,13 @@ interface ToolsPanelProps {
   className?: string;
 }
 
+// Currently only builtin tools are supported
 const toolTypeIcons: Record<AgentTool['type'], React.ComponentType<{ className?: string }>> = {
   builtin: Wrench,
-  function: Code,
-  api: Globe,
 };
 
 const toolTypeVariants: Record<AgentTool['type'], 'primary' | 'success' | 'warning'> = {
   builtin: 'primary',
-  function: 'success',
-  api: 'warning',
 };
 
 interface ToolItemProps {

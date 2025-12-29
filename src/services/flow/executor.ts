@@ -50,6 +50,8 @@ export interface FlowExecutionOptions {
   createSpans?: boolean;
   /** Parent span ID for nesting */
   parentSpanId?: string;
+  /** Session ID for debug logging */
+  sessionId?: string;
 }
 
 /** Default maximum steps to prevent infinite loops */
@@ -81,32 +83,40 @@ export async function executeFlow(
     return executeSinglePrompt(agent, input, attemptId, options);
   }
 
-  // Build step lookup map
-  const stepMap = buildStepMap(agent.flow);
-
-  // Find start step
+  // Validate flow has required structure
   const startStep = findStartStep(agent.flow);
   if (!startStep) {
     return {
       success: false,
       output: '',
       spans: [],
-      error: 'No start step found in flow',
+      error: 'Agent flow missing start step - use direct execution mode instead',
       durationMs: Date.now() - startTime,
       stepsExecuted: 0,
     };
   }
 
+  const hasOutputStep = agent.flow.some((s) => s.type === 'output');
+  if (!hasOutputStep) {
+    console.warn('[Flow] Agent flow missing output step - flow may not return a result');
+  }
+
+  // Build step lookup map
+  const stepMap = buildStepMap(agent.flow);
+
   // Create execution context
   const context = createFlowContext(agent, input, attemptId, {
     sessionContext: options.sessionContext,
     parentSpanId: options.parentSpanId,
+    sessionId: options.sessionId,
   });
 
   // Execute flow
   let currentStep: AgentFlowStep | null = startStep;
   let stepsExecuted = 0;
-  let lastOutput: unknown = input;
+  // Don't initialize lastOutput to input - that could leak internal test prompts
+  // The start step will properly set it via context.variables if needed
+  let lastOutput: unknown = '';
   let lastError: string | undefined;
 
   while (currentStep !== null && stepsExecuted < maxSteps) {
@@ -138,7 +148,9 @@ export async function executeFlow(
       if (!result.success && result.error) {
         lastError = result.error;
         // If nextStepId is null and we have an error, stop execution
+        // Clear lastOutput to avoid leaking internal input as output
         if (result.nextStepId === null) {
+          lastOutput = '';
           break;
         }
       }
@@ -168,13 +180,15 @@ export async function executeFlow(
       }
 
       // No error handler, stop execution
+      // Clear lastOutput to avoid leaking internal input as output
+      lastOutput = '';
       break;
     }
   }
 
   // Check if we hit the max steps limit
   if (stepsExecuted >= maxSteps && currentStep !== null) {
-    lastError = `Flow exceeded maximum steps limit (${maxSteps})`;
+    lastError = lastError || `Flow exceeded maximum steps limit (${maxSteps})`;
   }
 
   // Determine final output
@@ -188,7 +202,8 @@ export async function executeFlow(
     try {
       updateAttempt(attemptId, {
         output: finalOutput,
-        status: lastError && currentStep === null ? 'failed' : 'succeeded',
+        // If there was any error, the attempt failed
+        status: lastError ? 'failed' : 'succeeded',
         error: lastError,
         durationMs,
       });
@@ -198,7 +213,10 @@ export async function executeFlow(
   }
 
   return {
-    success: !lastError || currentStep === null,
+    // Success = no error occurred during execution
+    // Previously this was `!lastError || currentStep === null` which incorrectly
+    // marked errored flows as successful when they terminated (currentStep === null)
+    success: !lastError,
     output: finalOutput,
     spans: context.spans,
     error: lastError,
@@ -237,6 +255,7 @@ export async function executeSinglePrompt(
         temperature: agent.parameters?.temperature ?? 0.7,
         maxTokens: agent.parameters?.maxTokens ?? 2048,
         model: agent.parameters?.model,
+        sessionId: options.sessionId,
       }
     );
 

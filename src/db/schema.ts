@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 8;
 
 export const CREATE_TABLES_SQL = `
 -- Sessions
@@ -7,6 +7,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   name TEXT NOT NULL,
   need TEXT NOT NULL,
   constraints TEXT,
+  input_prompt TEXT,
+  mode TEXT NOT NULL DEFAULT 'training',
+  promoted_from TEXT,
+  initial_agent_count INTEGER NOT NULL DEFAULT 4,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -15,7 +19,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS lineages (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
-  label TEXT NOT NULL CHECK (label IN ('A', 'B', 'C', 'D')),
+  label TEXT NOT NULL CHECK (label IN ('A', 'B', 'C', 'D', 'E', 'F', 'G', 'H')),
   strategy_tag TEXT,
   is_locked INTEGER DEFAULT 0,
   directive_sticky TEXT,
@@ -302,7 +306,11 @@ CREATE INDEX IF NOT EXISTS idx_training_examples_type ON training_examples(examp
 `;
 
 // Migrations for upgrading schema versions
-export const MIGRATIONS: { fromVersion: number; toVersion: number; sql: string }[] = [
+export const MIGRATIONS: {
+  fromVersion: number;
+  toVersion: number;
+  sql: string;
+}[] = [
   {
     fromVersion: 1,
     toVersion: 2,
@@ -366,7 +374,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_definitions_lineage ON agent_definitions(li
 CREATE INDEX IF NOT EXISTS idx_context_documents_session ON context_documents(session_id);
 CREATE INDEX IF NOT EXISTS idx_context_examples_session ON context_examples(session_id);
 CREATE INDEX IF NOT EXISTS idx_test_cases_session ON test_cases(session_id);
-`
+`,
   },
   {
     fromVersion: 2,
@@ -496,7 +504,7 @@ CREATE INDEX IF NOT EXISTS idx_attempts_rollout ON attempts(rollout_id);
 CREATE INDEX IF NOT EXISTS idx_execution_spans_attempt ON execution_spans(attempt_id);
 CREATE INDEX IF NOT EXISTS idx_evolution_records_lineage ON evolution_records(lineage_id);
 CREATE INDEX IF NOT EXISTS idx_learning_insights_session ON learning_insights(session_id);
-`
+`,
   },
   {
     fromVersion: 3,
@@ -559,6 +567,57 @@ CREATE INDEX IF NOT EXISTS idx_training_events_type ON training_events(event_typ
 CREATE INDEX IF NOT EXISTS idx_training_events_session ON training_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_training_events_timestamp ON training_events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_training_examples_type ON training_examples(example_type);
-`
-  }
+`,
+  },
+  {
+    fromVersion: 4,
+    toVersion: 5,
+    sql: `
+-- Add Quick Start mode support to sessions
+ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'training';
+ALTER TABLE sessions ADD COLUMN promoted_from TEXT;
+
+-- Quick Start feedback table
+CREATE TABLE IF NOT EXISTS quickstart_feedback (
+  id TEXT PRIMARY KEY,
+  artifact_id TEXT NOT NULL,
+  feedback TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_quickstart_feedback_artifact ON quickstart_feedback(artifact_id);
+`,
+  },
+  {
+    fromVersion: 5,
+    toVersion: 6,
+    sql: `
+-- Add input_prompt field to sessions for explicit test inputs
+ALTER TABLE sessions ADD COLUMN input_prompt TEXT;
+`,
+  },
+  {
+    fromVersion: 6,
+    toVersion: 7,
+    sql: `
+-- Remove Quick Start feature entirely
+-- Delete all quickstart sessions and their related data (cascades)
+DELETE FROM sessions WHERE mode = 'quickstart';
+
+-- Drop the quickstart_feedback table
+DROP TABLE IF EXISTS quickstart_feedback;
+
+-- Drop the index if it exists
+DROP INDEX IF EXISTS idx_quickstart_feedback_artifact;
+`,
+  },
+  {
+    fromVersion: 7,
+    toVersion: 8,
+    sql: `
+-- Add initial_agent_count to sessions for dynamic agent counts
+ALTER TABLE sessions ADD COLUMN initial_agent_count INTEGER NOT NULL DEFAULT 4;
+`,
+  },
 ];

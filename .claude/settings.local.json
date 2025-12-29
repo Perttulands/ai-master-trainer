@@ -20,7 +20,11 @@
       "Bash(docker:*)",
       "Bash(curl:*)",
       "Bash(python:*)",
-      "Bash(pip:*)"
+      "Bash(pip:*)",
+      "Bash(./node_modules/.bin/vitest run:*)",
+      "Bash(npx vitest run)",
+      "Bash(npx vitest run:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

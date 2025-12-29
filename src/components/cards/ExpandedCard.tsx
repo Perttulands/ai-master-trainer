@@ -1,5 +1,5 @@
 import { Copy, Lock, Unlock, X } from 'lucide-react';
-import { Modal, Badge, Button, ScoreSlider, Textarea } from '../ui';
+import { Modal, Badge, Button } from '../ui';
 import { cn } from '../../utils/cn';
 import type { LineageWithArtifact } from '../../types';
 import { useLineageStore } from '../../store/lineages';
@@ -11,21 +11,14 @@ interface ExpandedCardProps {
 }
 
 export function ExpandedCard({ lineage, onClose }: ExpandedCardProps) {
-  const { toggleLock, setScore, setComment } = useLineageStore();
+  const { toggleLock } = useLineageStore();
   const [copied, setCopied] = useState(false);
-  const [localComment, setLocalComment] = useState(lineage.currentEvaluation?.comment || '');
 
   const handleCopy = async () => {
     if (lineage.currentArtifact) {
       await navigator.clipboard.writeText(lineage.currentArtifact.content);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const handleCommentBlur = () => {
-    if (localComment !== lineage.currentEvaluation?.comment) {
-      setComment(lineage.id, localComment);
     }
   };
 
@@ -95,41 +88,6 @@ export function ExpandedCard({ lineage, onClose }: ExpandedCardProps) {
           </pre>
         </div>
 
-        {/* Evaluation */}
-        {!lineage.isLocked && (
-          <div className="space-y-4 border-t border-gray-100 pt-4">
-            <ScoreSlider
-              value={lineage.currentEvaluation?.score ?? null}
-              onChange={(score) => setScore(lineage.id, score)}
-            />
-            <Textarea
-              label="Comment (optional)"
-              placeholder="Add feedback for this artifact..."
-              value={localComment}
-              onChange={(e) => setLocalComment(e.target.value)}
-              onBlur={handleCommentBlur}
-              rows={3}
-            />
-          </div>
-        )}
-
-        {/* Locked state */}
-        {lineage.isLocked && lineage.currentEvaluation && (
-          <div className="border-t border-gray-100 pt-4">
-            <div className="flex items-center justify-between">
-              <span className="text-gray-500">Final Score:</span>
-              <span className="text-2xl font-bold text-green-600">
-                {lineage.currentEvaluation.score}/10
-              </span>
-            </div>
-            {lineage.currentEvaluation.comment && (
-              <p className="mt-2 text-sm text-gray-600 italic">
-                "{lineage.currentEvaluation.comment}"
-              </p>
-            )}
-          </div>
-        )}
-
         {/* Metadata */}
         {lineage.currentArtifact?.metadata && (
           <details className="mt-4">
@@ -145,3 +103,4 @@ export function ExpandedCard({ lineage, onClose }: ExpandedCardProps) {
     </Modal>
   );
 }
+

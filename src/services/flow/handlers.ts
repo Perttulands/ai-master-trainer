@@ -15,6 +15,7 @@ import type { ExecutionSpan } from '../../types/evolution';
 import { executeToolCall, type ToolCall } from '../tools/executor';
 import { generateWithSystem, generateText } from '../../api/llm';
 import { createSpan } from '../../db/queries';
+import { safeEvaluateCondition } from '../../utils/safeExpressionEvaluator';
 
 /**
  * Context maintained during flow execution
@@ -26,6 +27,8 @@ export interface FlowContext {
   input: string;
   /** Optional context from session */
   sessionContext?: string;
+  /** Session ID for debug logging */
+  sessionId?: string;
   /** The attempt ID for span tracking */
   attemptId: string;
   /** Variables accumulated during execution */
@@ -144,6 +147,11 @@ async function handlePromptStep(
     const useSystemPrompt = step.config.useSystemPrompt as boolean | undefined;
     const outputVariable = step.config.outputVariable as string | undefined;
 
+    // Warn if template doesn't reference input (may ignore user input)
+    if (template && !template.includes('{{input}}') && !template.includes('{{')) {
+      console.warn(`[Flow] Prompt step "${step.name}" has static template that may ignore user input`);
+    }
+
     // Build the prompt with interpolation
     let prompt: string;
     if (template) {
@@ -163,6 +171,7 @@ async function handlePromptStep(
           temperature: context.agent.parameters?.temperature ?? 0.7,
           maxTokens: context.agent.parameters?.maxTokens ?? 2048,
           model: context.agent.parameters?.model,
+          sessionId: context.sessionId,
         }
       );
     } else {
@@ -170,6 +179,7 @@ async function handlePromptStep(
         temperature: context.agent.parameters?.temperature ?? 0.7,
         maxTokens: context.agent.parameters?.maxTokens ?? 2048,
         model: context.agent.parameters?.model,
+        sessionId: context.sessionId,
       });
     }
 
@@ -236,6 +246,11 @@ async function handlePromptStep(
 
 /**
  * Handle tool step - Execute tool via tool executor
+ *
+ * Supports multiple config formats for backwards compatibility:
+ * - args: { key: value } - direct arguments
+ * - parameters: { key: value } - alias for args
+ * - inputMapping: "{{variable}}" - single input from variable
  */
 async function handleToolStep(
   step: AgentFlowStep,
@@ -246,11 +261,29 @@ async function handleToolStep(
   try {
     // Get tool configuration
     const toolName = step.config.toolName as string;
-    const toolArgs = step.config.args as Record<string, unknown> | undefined;
     const outputVariable = step.config.outputVariable as string | undefined;
 
     if (!toolName) {
       throw new Error('Tool step requires toolName in config');
+    }
+
+    // Support multiple arg formats: args, parameters, or inputMapping
+    let toolArgs: Record<string, unknown> | undefined;
+
+    if (step.config.args) {
+      // Primary format: args object
+      toolArgs = step.config.args as Record<string, unknown>;
+    } else if (step.config.parameters) {
+      // Alternative format: parameters object (used by flowLayout demo)
+      toolArgs = step.config.parameters as Record<string, unknown>;
+    } else if (step.config.inputMapping) {
+      // Template format: inputMapping string (used by flow-templates)
+      // Interpolate and use as the 'input' argument
+      const mappedValue = interpolate(
+        step.config.inputMapping as string,
+        context.variables
+      );
+      toolArgs = { input: mappedValue };
     }
 
     // Interpolate any template strings in args
@@ -547,8 +580,9 @@ async function handleOutputStep(
     // Use specific variable
     output = context.variables[variable];
   } else {
-    // Default to lastOutput
-    output = context.variables['lastOutput'] || context.variables['input'];
+    // Default to lastOutput - do NOT fall back to raw input as it may contain
+    // internal test prompts like "Please demonstrate your capabilities..."
+    output = context.variables['lastOutput'] ?? '';
   }
 
   // Create span for output step
@@ -617,45 +651,18 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
 
 /**
  * Evaluate a condition expression against variables
- * Supports basic comparisons and logical operators
+ * Supports basic comparisons, logical operators, and special patterns.
+ *
+ * SECURITY: Uses a sandboxed evaluator that blocks access to dangerous
+ * globals like window, constructor, __proto__, etc.
  */
 export function evaluateCondition(
   condition: string,
   variables: Record<string, unknown>
 ): boolean {
-  // Replace variable references with their values
-  let expr = condition;
+  // Handle common comparison patterns that need special parsing
+  // These patterns are handled first before the general expression evaluator
 
-  // Handle variable references (simple names and dot notation)
-  expr = expr.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\b/g, (match) => {
-    // Skip JavaScript keywords and literals
-    const reserved = ['true', 'false', 'null', 'undefined', 'and', 'or', 'not'];
-    if (reserved.includes(match.toLowerCase())) {
-      return match;
-    }
-
-    const value = getNestedValue(variables, match);
-    if (value === undefined) {
-      return 'undefined';
-    }
-    if (value === null) {
-      return 'null';
-    }
-    if (typeof value === 'string') {
-      return JSON.stringify(value);
-    }
-    if (typeof value === 'object') {
-      return JSON.stringify(value);
-    }
-    return String(value);
-  });
-
-  // Replace logical operators with JavaScript equivalents
-  expr = expr.replace(/\band\b/gi, '&&');
-  expr = expr.replace(/\bor\b/gi, '||');
-  expr = expr.replace(/\bnot\b/gi, '!');
-
-  // Handle common comparison patterns
   // "exists varName" or "varName exists"
   if (/\bexists\b/i.test(condition)) {
     const varMatch = condition.match(/(?:(\w+)\s+)?exists(?:\s+(\w+))?/i);
@@ -700,24 +707,9 @@ export function evaluateCondition(
     }
   }
 
-  try {
-    // Use Function constructor to evaluate (safer than eval)
-    // We wrap in a try-catch and handle boolean coercion
-    const fn = new Function('return (' + expr + ')');
-    const result = fn();
-    return Boolean(result);
-  } catch {
-    // If evaluation fails, try some simple pattern matching
-    // Check for truthiness of a single variable
-    const simpleVarMatch = condition.match(/^(\w+)$/);
-    if (simpleVarMatch) {
-      const value = getNestedValue(variables, simpleVarMatch[1]);
-      return Boolean(value);
-    }
-
-    // Default to false on error
-    return false;
-  }
+  // Use the safe expression evaluator for all other expressions
+  // This replaces the dangerous `new Function()` call with a sandboxed parser
+  return safeEvaluateCondition(condition, variables);
 }
 
 /**
@@ -792,12 +784,14 @@ export function createFlowContext(
   options: {
     sessionContext?: string;
     parentSpanId?: string;
+    sessionId?: string;
   } = {}
 ): FlowContext {
   return {
     agent,
     input,
     sessionContext: options.sessionContext,
+    sessionId: options.sessionId,
     attemptId,
     variables: {},
     sequence: 0,

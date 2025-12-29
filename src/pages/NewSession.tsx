@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Sparkles, ChevronDown, ChevronUp, FileText, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Sparkles, ChevronDown, ChevronUp, FileText, Plus, Trash2, Wand2 } from 'lucide-react';
 import { Button, Input, Textarea, Card, CardContent } from '../components/ui';
 import { Header } from '../components/layout/Header';
 import { StrategyDiscussionModal } from '../components/strategy';
@@ -8,6 +8,7 @@ import { useSessionStore } from '../store/session';
 import { useLineageStore } from '../store/lineages';
 import { useContextStore } from '../store/context';
 import { generateAgentsFromStrategies } from '../agents/agent-generator';
+import { proposeInputPrompt } from '../agents/master-trainer';
 import type { CustomStrategy } from '../types/strategy';
 
 interface ContextDocument {
@@ -30,6 +31,9 @@ export function NewSession() {
   const [name, setName] = useState('');
   const [need, setNeed] = useState('');
   const [constraints, setConstraints] = useState('');
+  const [inputPrompt, setInputPrompt] = useState('');
+  const [agentCount, setAgentCount] = useState<1 | 2 | 4>(4);
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showStrategyModal, setShowStrategyModal] = useState(false);
@@ -79,6 +83,20 @@ export function NewSession() {
     setExamples(examples.filter((_, i) => i !== index));
   };
 
+  // Generate input prompt using Master Trainer
+  const handleGeneratePrompt = async () => {
+    if (!need.trim()) return;
+    setIsGeneratingPrompt(true);
+    try {
+      const proposed = await proposeInputPrompt(need.trim(), constraints.trim() || undefined);
+      setInputPrompt(proposed);
+    } catch (err) {
+      console.error('Failed to generate input prompt:', err);
+    } finally {
+      setIsGeneratingPrompt(false);
+    }
+  };
+
   // Open strategy discussion modal when form is submitted
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,11 +112,13 @@ export function NewSession() {
     setError(null);
 
     try {
-      // Create session
+      // Create session with input prompt and agent count
       const session = createSession({
         name: name.trim(),
         need: need.trim(),
         constraints: constraints.trim() || undefined,
+        inputPrompt: inputPrompt.trim() || undefined,
+        initialAgentCount: agentCount,
       });
 
       // Save context to store
@@ -137,7 +157,7 @@ export function NewSession() {
       setError(err instanceof Error ? err.message : 'Failed to create session');
       setIsCreating(false);
     }
-  }, [name, need, constraints, documents, examples, createSession, addDocument, addExample, createInitialLineagesWithAgents, navigate]);
+  }, [name, need, constraints, inputPrompt, agentCount, documents, examples, createSession, addDocument, addExample, createInitialLineagesWithAgents, navigate]);
 
   const contextCount = documents.length + examples.length;
 
@@ -162,7 +182,7 @@ export function NewSession() {
               <div>
                 <h1 className="text-xl font-bold text-gray-900">New Training Session</h1>
                 <p className="text-sm text-gray-500">
-                  Define what you want to create and we'll generate 4 initial options
+                  Define what you want and we'll generate initial agent options
                 </p>
               </div>
             </div>
@@ -198,6 +218,59 @@ export function NewSession() {
                 onChange={(e) => setConstraints(e.target.value)}
                 rows={3}
               />
+
+              {/* Input Prompt Section */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Input Prompt
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleGeneratePrompt}
+                    disabled={!need.trim() || isGeneratingPrompt}
+                    className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-primary-600 hover:text-primary-700 hover:bg-primary-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Wand2 className={`w-3.5 h-3.5 ${isGeneratingPrompt ? 'animate-spin' : ''}`} />
+                    {isGeneratingPrompt ? 'Generating...' : 'Generate'}
+                  </button>
+                </div>
+                <Textarea
+                  placeholder="Enter a test prompt that agents will respond to (e.g., 'Write a poem about autumn leaves')"
+                  value={inputPrompt}
+                  onChange={(e) => setInputPrompt(e.target.value)}
+                  rows={3}
+                />
+                <p className="text-xs text-gray-500">
+                  This is the actual input your agents will respond to. If left empty, agents will receive a generic prompt based on your need.
+                </p>
+              </div>
+
+              {/* Agent Count Section */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Number of Agents
+                </label>
+                <div className="flex gap-2">
+                  {([1, 2, 4] as const).map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => setAgentCount(count)}
+                      className={`flex-1 py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${
+                        agentCount === count
+                          ? 'border-primary-500 bg-primary-50 text-primary-700'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      {count} Agent{count > 1 ? 's' : ''}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500">
+                  Start with fewer agents for quick iteration, or more for broader exploration. You can add more agents later.
+                </p>
+              </div>
 
               {/* Context Section */}
               <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -428,6 +501,7 @@ export function NewSession() {
         onConfirm={handleStrategiesConfirmed}
         need={need.trim()}
         constraints={constraints.trim() || undefined}
+        agentCount={agentCount}
       />
     </div>
   );

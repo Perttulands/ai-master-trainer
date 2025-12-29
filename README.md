@@ -27,7 +27,7 @@ Lineage-Based Interactive Training for AI Agents, Agentic Systems, and AI Skills
    ```bash
    # Copy the example env file (already done, but update with your keys)
    cp .env.example .env
-   # Edit .env and add your ANTHROPIC_API_KEY
+   # Edit .env and add your LiteLLM credentials (VITE_LITELLM_API_BASE, VITE_LITELLM_API_KEY)
    ```
 
 4. **Authenticate Claude Code (first time only)**
@@ -72,8 +72,8 @@ training-camp/
 ## Tech Stack
 
 - **Frontend**: React + TypeScript + Vite
-- **Database**: SQLite (MVP)
-- **AI Integration**: Anthropic Claude API
+- **Database**: SQLite (in-browser via sql.js)
+- **LLM Runtime**: LiteLLM gateway (multi-model support: Claude, GPT, Gemini)
 - **Package Manager**: pnpm
 
 ## Development

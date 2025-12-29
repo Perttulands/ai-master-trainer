@@ -1,5 +1,7 @@
 # Training Camp - Architecture
 
+> **Implementation Status**: Both Quick Start and Full Training modes are implemented.
+
 ## Overview
 
 ```
@@ -11,25 +13,31 @@
 
 - **Master Trainer**: Orchestrates strategy discussion, agent generation, and evolution
 - **Store**: Persists sessions, lineages, agents, artifacts, evaluations
-- **Agent Executor**: Runs agents against inputs to produce artifacts
+- **Agent Executor**: Runs agents with flow and tool execution
 
 ---
 
 ## Data Model
 
 ### Session
+
 ```typescript
+type SessionMode = 'quickstart' | 'training';
+
 interface Session {
   id: string;
   name: string;
   need: string;           // What the user wants to accomplish
   constraints?: string;   // Optional constraints
+  mode: SessionMode;      // Quick Start or Full Training
+  promotedFrom?: string;  // Links promoted session to original Quick Start
   createdAt: number;
   updatedAt: number;
 }
 ```
 
 ### Lineage
+
 ```typescript
 interface Lineage {
   id: string;
@@ -44,6 +52,7 @@ interface Lineage {
 ```
 
 ### Agent Definition
+
 ```typescript
 interface AgentDefinition {
   id: string;
@@ -53,7 +62,7 @@ interface AgentDefinition {
   description: string;
   systemPrompt: string;
   tools: AgentTool[];       // Tools the agent can use
-  flow: AgentFlowStep[];    // Execution flow (flexible structure)
+  flow: AgentFlowStep[];    // Execution flow
   memory: AgentMemoryConfig;
   parameters: AgentParameters;
   createdAt: number;
@@ -61,27 +70,8 @@ interface AgentDefinition {
 }
 ```
 
-### Agent Tool (Flexible Schema)
-```typescript
-interface AgentTool {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;  // JSON Schema for parameters
-}
-```
-
-### Agent Flow Step (Flexible Structure)
-```typescript
-interface AgentFlowStep {
-  id: string;
-  type: string;             // Not restricted to predefined types
-  label: string;
-  config: Record<string, unknown>;  // Type-specific configuration
-  next?: string | string[]; // Next step(s) or conditional branches
-}
-```
-
 ### Artifact
+
 ```typescript
 interface Artifact {
   id: string;
@@ -98,6 +88,7 @@ interface Artifact {
 ```
 
 ### Evaluation
+
 ```typescript
 interface Evaluation {
   id: string;
@@ -113,6 +104,7 @@ interface Evaluation {
 ## Data Flow
 
 ### Session Creation
+
 ```
 User Input (need, constraints)
         ↓
@@ -128,6 +120,7 @@ Display in 2x2 Grid
 ```
 
 ### Training Cycle
+
 ```
 User Scores Artifacts (1-10)
         ↓
@@ -141,6 +134,44 @@ For each unlocked lineage:
   └─ Create new artifact (cycle++)
         ↓
 Display new artifacts, clear oneshot directives
+```
+
+### Quick Start Flow
+
+```
+User Input (need, constraints)
+        ↓
+Generate Prototype Agent (single, balanced)
+        ↓
+Execute Agent → Create Artifact (cycle 1)
+        ↓
+Display single-column output
+        ↓
+User Provides Freeform Feedback
+        ↓
+Evolve Agent Based on Feedback
+        ↓
+Execute → Create Artifact (cycle++)
+        ↓
+Repeat or Promote to Training
+```
+
+### Promotion Flow
+
+```
+User Clicks "Promote to Training"
+        ↓
+Select Strategy (Variations or Alternatives)
+        ↓
+Create New Session (mode: training, promotedFrom: quickstart.id)
+        ↓
+Lineage A = Prototype (locked)
+        ↓
+Generate 3 Additional Agents
+        ↓
+Create Lineages B, C, D with new agents
+        ↓
+Navigate to Training Session
 ```
 
 ---
@@ -164,6 +195,8 @@ CREATE TABLE sessions (
   name TEXT NOT NULL,
   need TEXT NOT NULL,
   constraints TEXT,
+  mode TEXT NOT NULL DEFAULT 'training' CHECK (mode IN ('quickstart', 'training')),
+  promoted_from TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -171,7 +204,7 @@ CREATE TABLE sessions (
 CREATE TABLE lineages (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id),
-  label TEXT NOT NULL,
+  label TEXT NOT NULL CHECK (label IN ('A', 'B', 'C', 'D')),
   strategy_tag TEXT,
   is_locked INTEGER DEFAULT 0,
   directive_sticky TEXT,
@@ -211,15 +244,99 @@ CREATE TABLE evaluations (
   created_at INTEGER NOT NULL
 );
 
-CREATE TABLE audit_log (
+CREATE TABLE quickstart_feedback (
   id TEXT PRIMARY KEY,
-  event_type TEXT NOT NULL,
-  entity_type TEXT,
-  entity_id TEXT,
-  data TEXT,            -- JSON object
+  artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+  feedback TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
 ```
+
+See `src/db/schema.ts` for the complete schema including evolution tables and training signal capture.
+
+---
+
+## Persistence & Reliability
+
+### Storage Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Application Layer                  │
+│              (Zustand stores, React)                │
+├─────────────────────────────────────────────────────┤
+│                   Database Layer                    │
+│                  (sql.js / SQLite)                  │
+├─────────────────────────────────────────────────────┤
+│                 Persistence Layer                   │
+│              (Browser localStorage)                 │
+└─────────────────────────────────────────────────────┘
+```
+
+**sql.js**: SQLite compiled to WebAssembly, runs entirely in browser. The database is an in-memory structure that must be explicitly persisted.
+
+### Persistence Requirements
+
+| Requirement | Specification |
+|-------------|---------------|
+| Storage backend | localStorage (5-10MB quota typical) |
+| Serialization | Binary export → Base64 encoding |
+| Save triggers | After each write operation |
+| Load triggers | Application startup |
+| Error handling | Surface to UI, never silent |
+
+### Implementation Constraints
+
+**Binary to Base64 Conversion**: The sql.js `db.export()` returns a `Uint8Array`. Converting to Base64 for localStorage requires chunked processing to avoid stack overflow:
+
+```typescript
+// CORRECT: Chunked conversion
+function uint8ArrayToBase64(data: Uint8Array): string {
+  const CHUNK_SIZE = 8192;
+  let binary = '';
+  for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+    const chunk = data.subarray(i, i + CHUNK_SIZE);
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  return btoa(binary);
+}
+
+// WRONG: Spread operator causes stack overflow at ~10KB
+// btoa(String.fromCharCode(...data));
+```
+
+### Error Handling Strategy
+
+All database operations must follow this pattern:
+
+1. **Attempt operation** - Execute SQL or persistence call
+2. **On success** - Return result, trigger save
+3. **On failure** - Throw error with context (never silently catch)
+4. **UI layer** - Display error to user with recovery options
+
+Errors that must surface to UI:
+- Database save failures
+- Storage quota exceeded
+- Database corruption
+- Migration failures
+
+### Data Integrity
+
+| Concern | Mitigation |
+|---------|------------|
+| Concurrent writes | Single-threaded JS prevents race conditions |
+| Partial writes | localStorage is atomic per key |
+| Corruption | Schema version check on load |
+| Data loss | Error surfaces immediately |
+
+### Storage Quota Management
+
+localStorage typically provides 5-10MB. The application should:
+
+1. Monitor usage after saves
+2. Warn user at 80% capacity
+3. Provide export functionality before quota exceeded
+4. Clear old session data if user permits
 
 ---
 
@@ -243,47 +360,63 @@ CREATE TABLE audit_log (
 
 ---
 
-## Implementation Status
+## Services
 
-### Fully Implemented ✅
+### Evolution Pipeline (`src/services/`)
 
-| Component | Location | Notes |
-|-----------|----------|-------|
-| Database schema | `src/db/schema.ts` | All tables including evolution tracking |
-| Database queries | `src/db/queries.ts` | Full CRUD for all entities |
-| Agent definitions | `src/types/agent.ts` | Complete agent structure |
-| Agent generation | `src/agents/agent-generator.ts` | 4 default strategies |
-| Reward analysis | `src/services/reward-analyzer.ts` | LLM + keyword fallback |
-| Credit assignment (prompt) | `src/services/credit-assignment.ts` | Prompt segment blame |
-| Evolution planning | `src/services/evolution-planner.ts` | Change generation |
-| Agent store | `src/store/agents.ts` | Zustand state |
-| Lineage store | `src/store/lineages.ts` | With 3 regeneration modes |
+| Service | Purpose |
+|---------|---------|
+| `reward-analyzer.ts` | Parse scores/comments into structured feedback |
+| `credit-assignment.ts` | Identify which prompt segments to blame |
+| `evolution-planner.ts` | Generate targeted change plans |
+| `agent-evolver.ts` | Apply changes to agent definitions |
+| `evolution-pipeline.ts` | Orchestrate the full cycle |
 
-### Partially Implemented ⚠️
+### Agent Execution (`src/services/agent-executor.ts`)
 
-| Component | Location | Gap |
-|-----------|----------|-----|
-| Simple agent evolver | `src/agents/agent-evolver.ts` | Only evolves prompt, not tools/flow |
-| Full agent evolver | `src/services/agent-evolver.ts` | Complete but underutilized |
-| Evolution pipeline | `src/services/evolution-pipeline.ts` | Works but not integrated into UI flow |
-| Learning system | `src/services/evolution-pipeline.ts` | Extracts insights but inconsistent usage |
+**Current mode**: Direct LLM execution
 
-### Not Implemented ❌
+All agents execute via `executeSinglePromptDirect()`:
+- Takes agent system prompt + user input
+- Makes single LLM call
+- Returns output directly
 
-| Component | Impact | Blocking |
-|-----------|--------|----------|
-| Tool execution engine | Tools defined but never run | High |
-| Flow execution engine | Flow steps never execute | High |
-| Trajectory credit assignment | Dead code (needs flow execution) | Medium |
-| Agent viewer flowchart | UI spec exists, not built | Low |
+This ensures:
+- Fair comparison between lineages (all use same execution path)
+- User input always reaches the LLM
+- Clean training signal without fake tool noise
 
-### Architecture Decisions Needed
+### Flow Execution (`src/services/flow/`) - PRESERVED FOR FUTURE
 
-1. **Consolidate Evolution Paths**: Two parallel systems exist:
-   - `src/agents/agent-evolver.ts` (simple, used by lineage store)
-   - `src/services/agent-evolver.ts` (full, underutilized)
+| Service | Purpose |
+|---------|---------|
+| `executor.ts` | Run agent flow steps |
+| `handlers.ts` | Handle each step type (start, prompt, tool, etc.) |
 
-2. **Tool Execution Strategy**: Choose between:
-   - Built-in tool implementations (simpler, less flexible)
-   - Plugin/adapter pattern (more complex, extensible)
-   - LLM-simulated tools (for MVP, fake execution)
+**Status**: Code preserved but currently bypassed. Agents have `flow: []`.
+
+**Why disabled**: The demo flow had hardcoded templates that ignored user input. See `docs/PLAN-tool-architecture-cleanup.md`.
+
+### Tool Execution (`src/services/tools/`) - PRESERVED FOR FUTURE
+
+| Service | Purpose |
+|---------|---------|
+| `registry.ts` | Register tool implementations |
+| `executor.ts` | Execute tool calls |
+| `builtin.ts` | LLM-wrapper tools (currently unused) |
+
+**Status**: Code preserved but currently unused. Agents have `tools: []`.
+
+**Why disabled**: The "tools" were fake - just LLM calls with different prompts pretending to be tools. Real tool support requires either:
+- Backend service for CORS/security
+- MCP server integration
+- Browser-only deterministic tools (calculate, format, etc.)
+
+See `docs/PLAN-tool-architecture-cleanup.md` for the full tool architecture plan.
+
+### Training Signal (`src/services/training-signal/`)
+
+| Service | Purpose |
+|---------|---------|
+| `recorder.ts` | Record events to training_events table |
+| `exporter.ts` | Export training data (SFT, DPO format) |

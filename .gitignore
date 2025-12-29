@@ -47,3 +47,7 @@ playwright-report/
 tmp/
 temp/
 .cache/
+
+# Local container export outputs (may contain artifacts/secrets)
+container-export/out/
+container-export/*.tgz

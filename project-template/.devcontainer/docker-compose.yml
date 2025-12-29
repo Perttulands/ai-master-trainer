@@ -1,0 +1,26 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Mount workspace
+      - ..:/workspace:cached
+      # Persist Claude Code credentials across container rebuilds
+      - claude-credentials:/home/node/.claude
+      # Persist node_modules for performance
+      - node-modules:/workspace/node_modules
+      # Persist pnpm store
+      - pnpm-store:/home/node/.local/share/pnpm
+    ports:
+      - "3000:3000"
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+    # Keep container running
+    command: sleep infinity
+
+volumes:
+  claude-credentials:
+  node-modules:
+  pnpm-store:

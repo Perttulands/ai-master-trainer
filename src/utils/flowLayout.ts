@@ -80,6 +80,14 @@ export function convertFlowToLayoutedElements(
   flow: AgentFlowStep[],
   options: LayoutOptions = {}
 ): { nodes: Node[]; edges: Edge[] } {
+  // Handle empty flow
+  if (!flow || flow.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+
+  // Build set of valid step IDs for connection validation
+  const validStepIds = new Set(flow.map((step) => step.id));
+
   // First create basic nodes without layout positions
   const nodes: Node[] = flow.map((step) => ({
     id: step.id,
@@ -88,14 +96,14 @@ export function convertFlowToLayoutedElements(
     data: { step },
   }));
 
-  // Create edges
+  // Create edges (only for valid connections)
   const edges: Edge[] = [];
 
   flow.forEach((step) => {
     const { connections } = step;
 
-    // Standard next connection
-    if (connections.next) {
+    // Standard next connection - validate target exists
+    if (connections.next && validStepIds.has(connections.next)) {
       edges.push({
         id: `${step.id}-${connections.next}`,
         source: step.id,
@@ -110,10 +118,12 @@ export function convertFlowToLayoutedElements(
           color: '#64748b',
         },
       });
+    } else if (connections.next && !validStepIds.has(connections.next)) {
+      console.warn(`[FlowLayout] Invalid connection: ${step.id} -> ${connections.next} (target not found)`);
     }
 
-    // Condition true branch
-    if (connections.onTrue) {
+    // Condition true branch - validate target exists
+    if (connections.onTrue && validStepIds.has(connections.onTrue)) {
       edges.push({
         id: `${step.id}-true-${connections.onTrue}`,
         source: step.id,
@@ -134,10 +144,12 @@ export function convertFlowToLayoutedElements(
           color: '#16a34a',
         },
       });
+    } else if (connections.onTrue && !validStepIds.has(connections.onTrue)) {
+      console.warn(`[FlowLayout] Invalid onTrue connection: ${step.id} -> ${connections.onTrue} (target not found)`);
     }
 
-    // Condition false branch
-    if (connections.onFalse) {
+    // Condition false branch - validate target exists
+    if (connections.onFalse && validStepIds.has(connections.onFalse)) {
       edges.push({
         id: `${step.id}-false-${connections.onFalse}`,
         source: step.id,
@@ -158,10 +170,12 @@ export function convertFlowToLayoutedElements(
           color: '#dc2626',
         },
       });
+    } else if (connections.onFalse && !validStepIds.has(connections.onFalse)) {
+      console.warn(`[FlowLayout] Invalid onFalse connection: ${step.id} -> ${connections.onFalse} (target not found)`);
     }
 
-    // Error branch
-    if (connections.onError) {
+    // Error branch - validate target exists
+    if (connections.onError && validStepIds.has(connections.onError)) {
       edges.push({
         id: `${step.id}-error-${connections.onError}`,
         source: step.id,
@@ -182,6 +196,8 @@ export function convertFlowToLayoutedElements(
           color: '#f97316',
         },
       });
+    } else if (connections.onError && !validStepIds.has(connections.onError)) {
+      console.warn(`[FlowLayout] Invalid onError connection: ${step.id} -> ${connections.onError} (target not found)`);
     }
   });
 
@@ -192,7 +208,18 @@ export function convertFlowToLayoutedElements(
 }
 
 /**
+ * Returns an empty flow for direct LLM execution mode.
+ * Agents with empty flows bypass flow execution and use executeSinglePromptDirect().
+ * This is the recommended approach for basic agents.
+ */
+export function getDirectExecutionFlow(): AgentFlowStep[] {
+  return [];
+}
+
+/**
  * Get default flow for demonstration
+ * @deprecated Use getDirectExecutionFlow() instead. This demo flow has hardcoded
+ * templates that ignore user input. Kept for backwards compatibility only.
  */
 export function getDefaultDemoFlow(): AgentFlowStep[] {
   return [

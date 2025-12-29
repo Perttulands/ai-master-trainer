@@ -1,13 +1,14 @@
 // Agent Generator - Creates AgentDefinition objects for lineages
 
-import { generateWithSystem, isLLMConfigured } from '../api/llm';
-import type { AgentDefinition, AgentFlowStep, AgentTool } from '../types/agent';
+import { generateWithSystem, isLLMConfigured, getAgentModelId } from '../api/llm';
+import type { AgentDefinition, AgentFlowStep } from '../types/agent';
 import type { LineageLabel } from '../types';
 import type { CustomStrategy } from '../types/strategy';
 import { generateId } from '../utils/id';
-import { getDefaultDemoFlow } from '../utils/flowLayout';
 
 // Strategy configurations for each lineage label
+// NOTE: tools removed - all agents use direct LLM execution with tools: []
+// See docs/PLAN-tool-architecture-cleanup.md for rationale
 const STRATEGY_CONFIGS: Record<
   LineageLabel,
   {
@@ -15,8 +16,6 @@ const STRATEGY_CONFIGS: Record<
     description: string;
     style: string;
     temperature: number;
-    tools: AgentTool[];
-    flowModifier?: (baseFlow: AgentFlowStep[]) => AgentFlowStep[];
   }
 > = {
   A: {
@@ -24,76 +23,48 @@ const STRATEGY_CONFIGS: Record<
     description: 'Focused on delivering clear, brief responses without unnecessary details.',
     style: 'brief and to-the-point, minimizing words while maximizing clarity',
     temperature: 0.3,
-    tools: [],
-    flowModifier: (flow) => flow.filter((s) => s.type !== 'loop'), // Simpler flow
   },
   B: {
     tag: 'Detailed',
     description: 'Provides comprehensive, well-structured responses with examples.',
     style: 'thorough and comprehensive, covering all aspects with examples',
     temperature: 0.5,
-    tools: [
-      {
-        id: generateId(),
-        name: 'format_markdown',
-        description: 'Format response as structured markdown with headers and sections',
-        type: 'builtin',
-        config: { builtinName: 'format_markdown' },
-        parameters: [
-          { name: 'content', type: 'string', description: 'Content to format', required: true },
-          { name: 'style', type: 'string', description: 'Formatting style (outline, prose, mixed)', required: false },
-        ],
-      },
-    ],
   },
   C: {
     tag: 'Creative',
     description: 'Engages with innovative angles, unique perspectives, and fresh approaches.',
     style: 'creative and engaging, using metaphors, stories, and unexpected angles',
     temperature: 0.9,
-    tools: [
-      {
-        id: generateId(),
-        name: 'brainstorm',
-        description: 'Generate creative alternatives and unique angles',
-        type: 'function',
-        config: { code: 'return generateAlternatives(args.topic, args.count)' },
-        parameters: [
-          { name: 'topic', type: 'string', description: 'Topic to brainstorm', required: true },
-          { name: 'count', type: 'number', description: 'Number of alternatives', required: false },
-        ],
-      },
-    ],
   },
   D: {
     tag: 'Analytical',
     description: 'Approaches tasks methodically with step-by-step reasoning and data focus.',
     style: 'structured and analytical, breaking down problems with clear logic',
     temperature: 0.4,
-    tools: [
-      {
-        id: generateId(),
-        name: 'analyze_data',
-        description: 'Analyze structured data and extract insights',
-        type: 'function',
-        config: { code: 'return analyzeData(args.data)' },
-        parameters: [
-          { name: 'data', type: 'object', description: 'Data to analyze', required: true },
-          { name: 'metrics', type: 'array', description: 'Metrics to compute', required: false },
-        ],
-      },
-      {
-        id: generateId(),
-        name: 'web_search',
-        description: 'Search the web for factual information',
-        type: 'api',
-        config: { endpoint: 'https://api.search.com/v1/search', method: 'GET' },
-        parameters: [
-          { name: 'query', type: 'string', description: 'Search query', required: true },
-          { name: 'max_results', type: 'number', description: 'Max results to return', required: false },
-        ],
-      },
-    ],
+  },
+  E: {
+    tag: 'Empathetic',
+    description: 'Warm, understanding, considers emotional context and user feelings.',
+    style: 'empathetic and supportive, acknowledging emotions while providing guidance',
+    temperature: 0.6,
+  },
+  F: {
+    tag: 'Formal',
+    description: 'Professional, polished, follows formal conventions and standards.',
+    style: 'professional and formal, using proper language and structured responses',
+    temperature: 0.4,
+  },
+  G: {
+    tag: 'Casual',
+    description: 'Relaxed, conversational, uses informal and approachable language.',
+    style: 'casual and friendly, using conversational tone and relatable examples',
+    temperature: 0.7,
+  },
+  H: {
+    tag: 'Hybrid',
+    description: 'Balanced blend of multiple approaches, adaptable to context.',
+    style: 'adaptive and balanced, combining multiple styles based on the situation',
+    temperature: 0.5,
   },
 };
 
@@ -180,9 +151,6 @@ async function generateAgentFromCustomStrategy(
 ): Promise<GeneratedAgentConfig> {
   const now = Date.now();
 
-  // Get base config for tools and flow modifiers
-  const baseConfig = STRATEGY_CONFIGS[strategy.label];
-
   let systemPrompt: string;
 
   if (useLLM && isLLMConfigured()) {
@@ -216,13 +184,12 @@ ${strategy.description}
 Guidelines:
 - Follow the user's instructions carefully
 - Maintain your ${strategy.name.toLowerCase()} style consistently
-- Provide accurate and helpful responses
-- Use available tools when appropriate${constraintNote}`;
+- Provide accurate and helpful responses${constraintNote}`;
   }
 
-  // Build the flow
-  const baseFlow = getDefaultDemoFlow();
-  const flow = baseConfig.flowModifier ? baseConfig.flowModifier(baseFlow) : baseFlow;
+  // Don't assign flows to basic agents - use direct LLM execution mode
+  // Flow-based execution had issues with hardcoded templates ignoring user input
+  const flow: AgentFlowStep[] = [];
 
   const agent: AgentDefinition = {
     id: generateId(),
@@ -230,7 +197,7 @@ Guidelines:
     description: strategy.description,
     version: 1,
     systemPrompt,
-    tools: baseConfig.tools,
+    tools: [],  // No tools - direct LLM execution only
     flow,
     memory: {
       type: 'buffer',
@@ -240,7 +207,7 @@ Guidelines:
       },
     },
     parameters: {
-      model: 'claude-sonnet-4-20250514',
+      model: getAgentModelId(),
       temperature: strategy.temperature,
       maxTokens: 2048,
       topP: 0.95,
@@ -286,9 +253,9 @@ Style: ${config.style}`;
     temperature: 0.7,
   });
 
-  // Build the flow
-  const baseFlow = getDefaultDemoFlow();
-  const flow = config.flowModifier ? config.flowModifier(baseFlow) : baseFlow;
+  // Don't assign flows to basic agents - use direct LLM execution mode
+  // Flow-based execution had issues with hardcoded templates ignoring user input
+  const flow: AgentFlowStep[] = [];
 
   const agent: AgentDefinition = {
     id: generateId(),
@@ -296,7 +263,7 @@ Style: ${config.style}`;
     description: config.description,
     version: 1,
     systemPrompt: systemPrompt.trim(),
-    tools: config.tools,
+    tools: [],  // No tools - direct LLM execution only
     flow,
     memory: {
       type: 'buffer',
@@ -306,7 +273,7 @@ Style: ${config.style}`;
       },
     },
     parameters: {
-      model: 'claude-sonnet-4-20250514',
+      model: getAgentModelId(),
       temperature: config.temperature,
       maxTokens: 2048,
       topP: 0.95,
@@ -343,13 +310,22 @@ Your approach is ${config.style}.
 Guidelines:
 - Follow the user's instructions carefully
 - Maintain your ${config.tag.toLowerCase()} style consistently
-- Provide accurate and helpful responses
-- Use available tools when appropriate${constraintNote}
+- Provide accurate and helpful responses${constraintNote}
 
-When in doubt, prioritize ${label === 'A' ? 'brevity' : label === 'B' ? 'completeness' : label === 'C' ? 'creativity' : 'accuracy'}.`;
+When in doubt, prioritize ${
+    label === 'A' ? 'brevity' :
+    label === 'B' ? 'completeness' :
+    label === 'C' ? 'creativity' :
+    label === 'D' ? 'accuracy' :
+    label === 'E' ? 'empathy' :
+    label === 'F' ? 'professionalism' :
+    label === 'G' ? 'accessibility' :
+    'adaptability'
+  }.`;
 
-  const baseFlow = getDefaultDemoFlow();
-  const flow = config.flowModifier ? config.flowModifier(baseFlow) : baseFlow;
+  // Don't assign flows to basic agents - use direct LLM execution mode
+  // Flow-based execution had issues with hardcoded templates ignoring user input
+  const flow: AgentFlowStep[] = [];
 
   const agent: AgentDefinition = {
     id: generateId(),
@@ -357,7 +333,7 @@ When in doubt, prioritize ${label === 'A' ? 'brevity' : label === 'B' ? 'complet
     description: config.description,
     version: 1,
     systemPrompt,
-    tools: config.tools,
+    tools: [],  // No tools - direct LLM execution only
     flow,
     memory: {
       type: 'buffer',
@@ -367,7 +343,7 @@ When in doubt, prioritize ${label === 'A' ? 'brevity' : label === 'B' ? 'complet
       },
     },
     parameters: {
-      model: 'claude-sonnet-4-20250514',
+      model: getAgentModelId(),
       temperature: config.temperature,
       maxTokens: 2048,
       topP: 0.95,
@@ -395,4 +371,94 @@ export function getStrategyConfig(label: LineageLabel) {
  */
 export function getAllStrategyConfigs() {
   return STRATEGY_CONFIGS;
+}
+
+/**
+ * Generate a single agent for a given configuration
+ * Used for adding agents mid-session
+ */
+export async function generateAgent(options: {
+  need: string;
+  constraints?: string;
+  label: LineageLabel;
+  strategyTag: string;
+}): Promise<AgentDefinition> {
+  const { need, constraints, label, strategyTag } = options;
+  const config = STRATEGY_CONFIGS[label];
+  const now = Date.now();
+
+  let systemPrompt: string;
+
+  if (isLLMConfigured()) {
+    try {
+      let userPrompt = `Create a system prompt for an AI agent with this configuration:
+
+User Need: "${need}"
+Strategy: ${strategyTag} - ${config.description}
+Style: ${config.style}`;
+
+      if (constraints) {
+        userPrompt += `\n\nConstraints to incorporate:\n${constraints}`;
+      }
+
+      userPrompt += `\n\nGenerate the system prompt now:`;
+
+      systemPrompt = await generateWithSystem(AGENT_GENERATION_SYSTEM_PROMPT, userPrompt, {
+        maxTokens: 512,
+        temperature: 0.7,
+      });
+      systemPrompt = systemPrompt.trim();
+    } catch (error) {
+      console.error('Failed to generate agent system prompt:', error);
+      systemPrompt = generateFallbackSystemPrompt(need, constraints, config);
+    }
+  } else {
+    systemPrompt = generateFallbackSystemPrompt(need, constraints, config);
+  }
+
+  // Don't assign flows to basic agents - use direct LLM execution mode
+  // Flow-based execution had issues with hardcoded templates ignoring user input
+  const flow: AgentFlowStep[] = [];
+
+  return {
+    id: generateId(),
+    name: `${strategyTag} Agent`,
+    description: config.description,
+    version: 1,
+    systemPrompt,
+    tools: [],  // No tools - direct LLM execution only
+    flow,
+    memory: {
+      type: 'buffer',
+      config: {
+        maxMessages: 10,
+        maxTokens: 4000,
+      },
+    },
+    parameters: {
+      model: getAgentModelId(),
+      temperature: config.temperature,
+      maxTokens: 2048,
+      topP: 0.95,
+    },
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function generateFallbackSystemPrompt(
+  need: string,
+  constraints: string | undefined,
+  config: { tag: string; style: string }
+): string {
+  const constraintNote = constraints ? `\n\nConstraints to follow:\n${constraints}` : '';
+
+  return `You are a ${config.tag.toLowerCase()} AI assistant designed for: ${need}
+
+Your approach is ${config.style}.
+
+Guidelines:
+- Follow the user's instructions carefully
+- Maintain your ${config.tag.toLowerCase()} style consistently
+- Provide accurate and helpful responses${constraintNote}`;
 }

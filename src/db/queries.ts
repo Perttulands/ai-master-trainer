@@ -1,6 +1,6 @@
-import type { SqlValue } from 'sql.js';
-import { getDatabase, saveDatabase } from './index';
-import { generateId } from '../utils/id';
+import type { SqlValue } from "sql.js";
+import { getDatabase, saveDatabase } from "./index";
+import { generateId } from "../utils/id";
 import type {
   Session,
   Lineage,
@@ -9,8 +9,14 @@ import type {
   AuditLogEntry,
   CreateSessionInput,
   LineageLabel,
-} from '../types';
-import type { AgentDefinition, AgentTool, AgentFlowStep, AgentMemoryConfig, AgentParameters } from '../types/agent';
+} from "../types";
+import type {
+  AgentDefinition,
+  AgentTool,
+  AgentFlowStep,
+  AgentMemoryConfig,
+  AgentParameters,
+} from "../types/agent";
 import type {
   Rollout,
   RolloutStatus,
@@ -32,7 +38,7 @@ import type {
   EvolutionPlan,
   EvolutionChange,
   PatternType,
-} from '../types/evolution';
+} from "../types/evolution";
 
 type SqlRow = SqlValue[];
 
@@ -41,28 +47,47 @@ type SqlRow = SqlValue[];
 export function createSession(input: CreateSessionInput): Session {
   const db = getDatabase();
   const now = Date.now();
+  const initialAgentCount = input.initialAgentCount ?? 4;
   const session: Session = {
     id: generateId(),
     name: input.name,
     need: input.need,
     constraints: input.constraints || null,
+    inputPrompt: input.inputPrompt || null,
+    initialAgentCount,
     createdAt: now,
     updatedAt: now,
   };
 
   db.run(
-    'INSERT INTO sessions (id, name, need, constraints, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [session.id, session.name, session.need, session.constraints, session.createdAt, session.updatedAt]
+    "INSERT INTO sessions (id, name, need, constraints, input_prompt, mode, initial_agent_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [
+      session.id,
+      session.name,
+      session.need,
+      session.constraints,
+      session.inputPrompt,
+      "training",
+      session.initialAgentCount,
+      session.createdAt,
+      session.updatedAt,
+    ]
   );
 
-  logAudit('session_created', 'session', session.id, { name: session.name });
+  logAudit("session_created", "session", session.id, {
+    name: session.name,
+    initialAgentCount,
+  });
   saveDatabase();
   return session;
 }
 
 export function getSession(id: string): Session | null {
   const db = getDatabase();
-  const result = db.exec('SELECT * FROM sessions WHERE id = ?', [id]);
+  const result = db.exec(
+    "SELECT id, name, need, constraints, input_prompt, initial_agent_count, created_at, updated_at FROM sessions WHERE id = ?",
+    [id]
+  );
   if (result.length === 0 || result[0].values.length === 0) return null;
 
   const row = result[0].values[0];
@@ -71,14 +96,18 @@ export function getSession(id: string): Session | null {
     name: row[1] as string,
     need: row[2] as string,
     constraints: row[3] as string | null,
-    createdAt: row[4] as number,
-    updatedAt: row[5] as number,
+    inputPrompt: row[4] as string | null,
+    initialAgentCount: (row[5] as number) ?? 4,
+    createdAt: row[6] as number,
+    updatedAt: row[7] as number,
   };
 }
 
 export function getAllSessions(): Session[] {
   const db = getDatabase();
-  const result = db.exec('SELECT * FROM sessions ORDER BY updated_at DESC');
+  const result = db.exec(
+    "SELECT id, name, need, constraints, input_prompt, initial_agent_count, created_at, updated_at FROM sessions ORDER BY updated_at DESC"
+  );
   if (result.length === 0) return [];
 
   return result[0].values.map((row: SqlRow) => ({
@@ -86,45 +115,60 @@ export function getAllSessions(): Session[] {
     name: row[1] as string,
     need: row[2] as string,
     constraints: row[3] as string | null,
-    createdAt: row[4] as number,
-    updatedAt: row[5] as number,
+    inputPrompt: row[4] as string | null,
+    initialAgentCount: (row[5] as number) ?? 4,
+    createdAt: row[6] as number,
+    updatedAt: row[7] as number,
   }));
 }
 
-export function updateSession(id: string, updates: Partial<Pick<Session, 'name' | 'need' | 'constraints'>>): void {
+export function updateSession(
+  id: string,
+  updates: Partial<
+    Pick<Session, "name" | "need" | "constraints" | "inputPrompt">
+  >
+): void {
   const db = getDatabase();
   const now = Date.now();
-  const sets: string[] = ['updated_at = ?'];
+  const sets: string[] = ["updated_at = ?"];
   const values: SqlValue[] = [now];
 
   if (updates.name !== undefined) {
-    sets.push('name = ?');
+    sets.push("name = ?");
     values.push(updates.name);
   }
   if (updates.need !== undefined) {
-    sets.push('need = ?');
+    sets.push("need = ?");
     values.push(updates.need);
   }
   if (updates.constraints !== undefined) {
-    sets.push('constraints = ?');
+    sets.push("constraints = ?");
     values.push(updates.constraints);
+  }
+  if (updates.inputPrompt !== undefined) {
+    sets.push("input_prompt = ?");
+    values.push(updates.inputPrompt);
   }
 
   values.push(id);
-  db.run(`UPDATE sessions SET ${sets.join(', ')} WHERE id = ?`, values);
+  db.run(`UPDATE sessions SET ${sets.join(", ")} WHERE id = ?`, values);
   saveDatabase();
 }
 
 export function deleteSession(id: string): void {
   const db = getDatabase();
-  db.run('DELETE FROM sessions WHERE id = ?', [id]);
-  logAudit('session_deleted', 'session', id, null);
+  db.run("DELETE FROM sessions WHERE id = ?", [id]);
+  logAudit("session_deleted", "session", id, null);
   saveDatabase();
 }
 
 // ============ Lineages ============
 
-export function createLineage(sessionId: string, label: LineageLabel, strategyTag?: string): Lineage {
+export function createLineage(
+  sessionId: string,
+  label: LineageLabel,
+  strategyTag?: string
+): Lineage {
   const db = getDatabase();
   const lineage: Lineage = {
     id: generateId(),
@@ -138,7 +182,7 @@ export function createLineage(sessionId: string, label: LineageLabel, strategyTa
   };
 
   db.run(
-    'INSERT INTO lineages (id, session_id, label, strategy_tag, is_locked, directive_sticky, directive_oneshot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    "INSERT INTO lineages (id, session_id, label, strategy_tag, is_locked, directive_sticky, directive_oneshot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     [
       lineage.id,
       lineage.sessionId,
@@ -157,7 +201,10 @@ export function createLineage(sessionId: string, label: LineageLabel, strategyTa
 
 export function getLineagesBySession(sessionId: string): Lineage[] {
   const db = getDatabase();
-  const result = db.exec('SELECT * FROM lineages WHERE session_id = ? ORDER BY label', [sessionId]);
+  const result = db.exec(
+    "SELECT * FROM lineages WHERE session_id = ? ORDER BY label",
+    [sessionId]
+  );
   if (result.length === 0) return [];
 
   return result[0].values.map((row: SqlRow) => ({
@@ -174,46 +221,63 @@ export function getLineagesBySession(sessionId: string): Lineage[] {
 
 export function updateLineage(
   id: string,
-  updates: Partial<Pick<Lineage, 'strategyTag' | 'isLocked' | 'directiveSticky' | 'directiveOneshot'>>
+  updates: Partial<
+    Pick<
+      Lineage,
+      "strategyTag" | "isLocked" | "directiveSticky" | "directiveOneshot"
+    >
+  >
 ): void {
   const db = getDatabase();
   const sets: string[] = [];
   const values: SqlValue[] = [];
 
   if (updates.strategyTag !== undefined) {
-    sets.push('strategy_tag = ?');
+    sets.push("strategy_tag = ?");
     values.push(updates.strategyTag);
   }
   if (updates.isLocked !== undefined) {
-    sets.push('is_locked = ?');
+    sets.push("is_locked = ?");
     values.push(updates.isLocked ? 1 : 0);
-    logAudit(updates.isLocked ? 'lineage_locked' : 'lineage_unlocked', 'lineage', id, null);
+    logAudit(
+      updates.isLocked ? "lineage_locked" : "lineage_unlocked",
+      "lineage",
+      id,
+      null
+    );
   }
   if (updates.directiveSticky !== undefined) {
-    sets.push('directive_sticky = ?');
+    sets.push("directive_sticky = ?");
     values.push(updates.directiveSticky);
   }
   if (updates.directiveOneshot !== undefined) {
-    sets.push('directive_oneshot = ?');
+    sets.push("directive_oneshot = ?");
     values.push(updates.directiveOneshot);
   }
 
   if (sets.length === 0) return;
 
   values.push(id);
-  db.run(`UPDATE lineages SET ${sets.join(', ')} WHERE id = ?`, values);
+  db.run(`UPDATE lineages SET ${sets.join(", ")} WHERE id = ?`, values);
   saveDatabase();
 }
 
 export function clearOneshotDirective(lineageId: string): void {
   const db = getDatabase();
-  db.run('UPDATE lineages SET directive_oneshot = NULL WHERE id = ?', [lineageId]);
+  db.run("UPDATE lineages SET directive_oneshot = NULL WHERE id = ?", [
+    lineageId,
+  ]);
   saveDatabase();
 }
 
 // ============ Artifacts ============
 
-export function createArtifact(lineageId: string, cycle: number, content: string, metadata?: Record<string, unknown>): Artifact {
+export function createArtifact(
+  lineageId: string,
+  cycle: number,
+  content: string,
+  metadata?: Record<string, unknown>
+): Artifact {
   const db = getDatabase();
   const artifact: Artifact = {
     id: generateId(),
@@ -225,8 +289,15 @@ export function createArtifact(lineageId: string, cycle: number, content: string
   };
 
   db.run(
-    'INSERT INTO artifacts (id, lineage_id, cycle, content, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [artifact.id, artifact.lineageId, artifact.cycle, artifact.content, JSON.stringify(artifact.metadata), artifact.createdAt]
+    "INSERT INTO artifacts (id, lineage_id, cycle, content, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    [
+      artifact.id,
+      artifact.lineageId,
+      artifact.cycle,
+      artifact.content,
+      JSON.stringify(artifact.metadata),
+      artifact.createdAt,
+    ]
   );
 
   saveDatabase();
@@ -236,7 +307,7 @@ export function createArtifact(lineageId: string, cycle: number, content: string
 export function getLatestArtifact(lineageId: string): Artifact | null {
   const db = getDatabase();
   const result = db.exec(
-    'SELECT * FROM artifacts WHERE lineage_id = ? ORDER BY cycle DESC LIMIT 1',
+    "SELECT * FROM artifacts WHERE lineage_id = ? ORDER BY cycle DESC LIMIT 1",
     [lineageId]
   );
   if (result.length === 0 || result[0].values.length === 0) return null;
@@ -254,7 +325,10 @@ export function getLatestArtifact(lineageId: string): Artifact | null {
 
 export function getArtifactsByLineage(lineageId: string): Artifact[] {
   const db = getDatabase();
-  const result = db.exec('SELECT * FROM artifacts WHERE lineage_id = ? ORDER BY cycle DESC', [lineageId]);
+  const result = db.exec(
+    "SELECT * FROM artifacts WHERE lineage_id = ? ORDER BY cycle DESC",
+    [lineageId]
+  );
   if (result.length === 0) return [];
 
   return result[0].values.map((row: SqlRow) => ({
@@ -281,7 +355,11 @@ export function getCurrentCycle(sessionId: string): number {
 
 // ============ Evaluations ============
 
-export function createEvaluation(artifactId: string, score: number, comment?: string): Evaluation {
+export function createEvaluation(
+  artifactId: string,
+  score: number,
+  comment?: string
+): Evaluation {
   const db = getDatabase();
   const evaluation: Evaluation = {
     id: generateId(),
@@ -292,18 +370,32 @@ export function createEvaluation(artifactId: string, score: number, comment?: st
   };
 
   db.run(
-    'INSERT INTO evaluations (id, artifact_id, score, comment, created_at) VALUES (?, ?, ?, ?, ?)',
-    [evaluation.id, evaluation.artifactId, evaluation.score, evaluation.comment, evaluation.createdAt]
+    "INSERT INTO evaluations (id, artifact_id, score, comment, created_at) VALUES (?, ?, ?, ?, ?)",
+    [
+      evaluation.id,
+      evaluation.artifactId,
+      evaluation.score,
+      evaluation.comment,
+      evaluation.createdAt,
+    ]
   );
 
-  logAudit('evaluation_created', 'evaluation', evaluation.id, { artifactId, score });
+  logAudit("evaluation_created", "evaluation", evaluation.id, {
+    artifactId,
+    score,
+  });
   saveDatabase();
   return evaluation;
 }
 
-export function getEvaluationForArtifact(artifactId: string): Evaluation | null {
+export function getEvaluationForArtifact(
+  artifactId: string
+): Evaluation | null {
   const db = getDatabase();
-  const result = db.exec('SELECT * FROM evaluations WHERE artifact_id = ? ORDER BY created_at DESC LIMIT 1', [artifactId]);
+  const result = db.exec(
+    "SELECT * FROM evaluations WHERE artifact_id = ? ORDER BY created_at DESC LIMIT 1",
+    [artifactId]
+  );
   if (result.length === 0 || result[0].values.length === 0) return null;
 
   const row = result[0].values[0];
@@ -316,24 +408,27 @@ export function getEvaluationForArtifact(artifactId: string): Evaluation | null 
   };
 }
 
-export function updateEvaluation(id: string, updates: Partial<Pick<Evaluation, 'score' | 'comment'>>): void {
+export function updateEvaluation(
+  id: string,
+  updates: Partial<Pick<Evaluation, "score" | "comment">>
+): void {
   const db = getDatabase();
   const sets: string[] = [];
   const values: SqlValue[] = [];
 
   if (updates.score !== undefined) {
-    sets.push('score = ?');
+    sets.push("score = ?");
     values.push(updates.score);
   }
   if (updates.comment !== undefined) {
-    sets.push('comment = ?');
+    sets.push("comment = ?");
     values.push(updates.comment);
   }
 
   if (sets.length === 0) return;
 
   values.push(id);
-  db.run(`UPDATE evaluations SET ${sets.join(', ')} WHERE id = ?`, values);
+  db.run(`UPDATE evaluations SET ${sets.join(", ")} WHERE id = ?`, values);
   saveDatabase();
 }
 
@@ -356,25 +451,35 @@ export function logAudit(
   };
 
   db.run(
-    'INSERT INTO audit_log (id, event_type, entity_type, entity_id, data, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [entry.id, entry.eventType, entry.entityType, entry.entityId, JSON.stringify(entry.data), entry.createdAt]
+    "INSERT INTO audit_log (id, event_type, entity_type, entity_id, data, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    [
+      entry.id,
+      entry.eventType,
+      entry.entityType,
+      entry.entityId,
+      JSON.stringify(entry.data),
+      entry.createdAt,
+    ]
   );
 }
 
-export function getAuditLog(entityType?: string, entityId?: string): AuditLogEntry[] {
+export function getAuditLog(
+  entityType?: string,
+  entityId?: string
+): AuditLogEntry[] {
   const db = getDatabase();
-  let query = 'SELECT * FROM audit_log';
+  let query = "SELECT * FROM audit_log";
   const params: string[] = [];
 
   if (entityType && entityId) {
-    query += ' WHERE entity_type = ? AND entity_id = ?';
+    query += " WHERE entity_type = ? AND entity_id = ?";
     params.push(entityType, entityId);
   } else if (entityType) {
-    query += ' WHERE entity_type = ?';
+    query += " WHERE entity_type = ?";
     params.push(entityType);
   }
 
-  query += ' ORDER BY created_at DESC';
+  query += " ORDER BY created_at DESC";
 
   const result = db.exec(query, params);
   if (result.length === 0) return [];
@@ -394,7 +499,10 @@ export function getAuditLog(entityType?: string, entityId?: string): AuditLogEnt
 /**
  * Create a new agent definition for a lineage
  */
-export function createAgent(agent: AgentDefinition, lineageId: string): AgentDefinition {
+export function createAgent(
+  agent: AgentDefinition,
+  lineageId: string
+): AgentDefinition {
   const db = getDatabase();
   const now = Date.now();
 
@@ -425,7 +533,10 @@ export function createAgent(agent: AgentDefinition, lineageId: string): AgentDef
     ]
   );
 
-  logAudit('agent_created', 'agent', agentWithId.id, { lineageId, version: agentWithId.version });
+  logAudit("agent_created", "agent", agentWithId.id, {
+    lineageId,
+    version: agentWithId.version,
+  });
   saveDatabase();
   return agentWithId;
 }
@@ -440,7 +551,9 @@ export function getAgentByLineage(lineageId: string): AgentDefinition | null {
 /**
  * Get the latest version of an agent for a lineage
  */
-export function getLatestAgentVersion(lineageId: string): AgentDefinition | null {
+export function getLatestAgentVersion(
+  lineageId: string
+): AgentDefinition | null {
   const db = getDatabase();
   const result = db.exec(
     `SELECT id, lineage_id, version, name, description, system_prompt, tools, flow, memory_config, parameters, created_at, updated_at
@@ -479,48 +592,51 @@ export function getAgentHistory(lineageId: string): AgentDefinition[] {
  */
 export function updateAgent(
   id: string,
-  updates: Partial<Omit<AgentDefinition, 'id' | 'createdAt'>>
+  updates: Partial<Omit<AgentDefinition, "id" | "createdAt">>
 ): void {
   const db = getDatabase();
   const now = Date.now();
-  const sets: string[] = ['updated_at = ?'];
+  const sets: string[] = ["updated_at = ?"];
   const values: SqlValue[] = [now];
 
   if (updates.name !== undefined) {
-    sets.push('name = ?');
+    sets.push("name = ?");
     values.push(updates.name);
   }
   if (updates.description !== undefined) {
-    sets.push('description = ?');
+    sets.push("description = ?");
     values.push(updates.description);
   }
   if (updates.systemPrompt !== undefined) {
-    sets.push('system_prompt = ?');
+    sets.push("system_prompt = ?");
     values.push(updates.systemPrompt);
   }
   if (updates.tools !== undefined) {
-    sets.push('tools = ?');
+    sets.push("tools = ?");
     values.push(JSON.stringify(updates.tools));
   }
   if (updates.flow !== undefined) {
-    sets.push('flow = ?');
+    sets.push("flow = ?");
     values.push(JSON.stringify(updates.flow));
   }
   if (updates.memory !== undefined) {
-    sets.push('memory_config = ?');
+    sets.push("memory_config = ?");
     values.push(JSON.stringify(updates.memory));
   }
   if (updates.parameters !== undefined) {
-    sets.push('parameters = ?');
+    sets.push("parameters = ?");
     values.push(JSON.stringify(updates.parameters));
   }
   if (updates.version !== undefined) {
-    sets.push('version = ?');
+    sets.push("version = ?");
     values.push(updates.version);
   }
 
   values.push(id);
-  db.run(`UPDATE agent_definitions SET ${sets.join(', ')} WHERE id = ?`, values);
+  db.run(
+    `UPDATE agent_definitions SET ${sets.join(", ")} WHERE id = ?`,
+    values
+  );
   saveDatabase();
 }
 
@@ -529,15 +645,17 @@ export function updateAgent(
  */
 export function deleteAgent(id: string): void {
   const db = getDatabase();
-  db.run('DELETE FROM agent_definitions WHERE id = ?', [id]);
-  logAudit('agent_deleted', 'agent', id, null);
+  db.run("DELETE FROM agent_definitions WHERE id = ?", [id]);
+  logAudit("agent_deleted", "agent", id, null);
   saveDatabase();
 }
 
 /**
  * Get all agents for a session (latest version per lineage)
  */
-export function getAgentsBySession(sessionId: string): Map<string, AgentDefinition> {
+export function getAgentsBySession(
+  sessionId: string
+): Map<string, AgentDefinition> {
   const lineages = getLineagesBySession(sessionId);
   const agents = new Map<string, AgentDefinition>();
 
@@ -578,14 +696,20 @@ export function createRollout(input: CreateRolloutInput): Rollout {
     id: generateId(),
     lineageId: input.lineageId,
     cycle: input.cycle,
-    status: 'pending',
+    status: "pending",
     attempts: [],
     createdAt: now,
   };
 
   db.run(
     `INSERT INTO rollouts (id, lineage_id, cycle, status, created_at) VALUES (?, ?, ?, ?, ?)`,
-    [rollout.id, rollout.lineageId, rollout.cycle, rollout.status, rollout.createdAt]
+    [
+      rollout.id,
+      rollout.lineageId,
+      rollout.cycle,
+      rollout.status,
+      rollout.createdAt,
+    ]
   );
 
   saveDatabase();
@@ -627,29 +751,29 @@ export function getRolloutsByLineage(lineageId: string): Rollout[] {
 
 export function updateRollout(
   id: string,
-  updates: Partial<Pick<Rollout, 'status' | 'finalAttemptId' | 'completedAt'>>
+  updates: Partial<Pick<Rollout, "status" | "finalAttemptId" | "completedAt">>
 ): void {
   const db = getDatabase();
   const sets: string[] = [];
   const values: SqlValue[] = [];
 
   if (updates.status !== undefined) {
-    sets.push('status = ?');
+    sets.push("status = ?");
     values.push(updates.status);
   }
   if (updates.finalAttemptId !== undefined) {
-    sets.push('final_attempt_id = ?');
+    sets.push("final_attempt_id = ?");
     values.push(updates.finalAttemptId);
   }
   if (updates.completedAt !== undefined) {
-    sets.push('completed_at = ?');
+    sets.push("completed_at = ?");
     values.push(updates.completedAt);
   }
 
   if (sets.length === 0) return;
 
   values.push(id);
-  db.run(`UPDATE rollouts SET ${sets.join(', ')} WHERE id = ?`, values);
+  db.run(`UPDATE rollouts SET ${sets.join(", ")} WHERE id = ?`, values);
   saveDatabase();
 }
 
@@ -675,7 +799,7 @@ export function createAttempt(input: CreateAttemptInput): Attempt {
     id: generateId(),
     rolloutId: input.rolloutId,
     attemptNumber: input.attemptNumber,
-    status: 'running',
+    status: "running",
     agentSnapshot: input.agentSnapshot,
     input: input.input,
     modelId: input.modelId,
@@ -749,42 +873,42 @@ export function updateAttempt(id: string, updates: UpdateAttemptInput): void {
   const values: SqlValue[] = [];
 
   if (updates.status !== undefined) {
-    sets.push('status = ?');
+    sets.push("status = ?");
     values.push(updates.status);
   }
   if (updates.output !== undefined) {
-    sets.push('output = ?');
+    sets.push("output = ?");
     values.push(updates.output);
   }
   if (updates.error !== undefined) {
-    sets.push('error = ?');
+    sets.push("error = ?");
     values.push(updates.error);
   }
   if (updates.durationMs !== undefined) {
-    sets.push('duration_ms = ?');
+    sets.push("duration_ms = ?");
     values.push(updates.durationMs);
   }
   if (updates.totalTokens !== undefined) {
-    sets.push('total_tokens = ?');
+    sets.push("total_tokens = ?");
     values.push(updates.totalTokens);
   }
   if (updates.promptTokens !== undefined) {
-    sets.push('prompt_tokens = ?');
+    sets.push("prompt_tokens = ?");
     values.push(updates.promptTokens);
   }
   if (updates.completionTokens !== undefined) {
-    sets.push('completion_tokens = ?');
+    sets.push("completion_tokens = ?");
     values.push(updates.completionTokens);
   }
   if (updates.estimatedCost !== undefined) {
-    sets.push('estimated_cost = ?');
+    sets.push("estimated_cost = ?");
     values.push(updates.estimatedCost);
   }
 
   if (sets.length === 0) return;
 
   values.push(id);
-  db.run(`UPDATE attempts SET ${sets.join(', ')} WHERE id = ?`, values);
+  db.run(`UPDATE attempts SET ${sets.join(", ")} WHERE id = ?`, values);
   saveDatabase();
 }
 
@@ -891,7 +1015,7 @@ function parseSpanRow(row: SqlRow): ExecutionSpan {
     attemptId: row[1] as string,
     parentSpanId: row[2] as string | undefined,
     sequence: row[3] as number,
-    type: row[4] as ExecutionSpan['type'],
+    type: row[4] as ExecutionSpan["type"],
     input: row[5] as string,
     output: row[6] as string,
     modelId: row[7] as string | undefined,
@@ -909,7 +1033,9 @@ function parseSpanRow(row: SqlRow): ExecutionSpan {
 
 // ============ Evolution Records ============
 
-export function createEvolutionRecord(input: CreateEvolutionRecordInput): EvolutionRecord {
+export function createEvolutionRecord(
+  input: CreateEvolutionRecordInput
+): EvolutionRecord {
   const db = getDatabase();
   const now = Date.now();
   const record: EvolutionRecord = {
@@ -952,7 +1078,7 @@ export function createEvolutionRecord(input: CreateEvolutionRecordInput): Evolut
     ]
   );
 
-  logAudit('evolution_created', 'evolution', record.id, {
+  logAudit("evolution_created", "evolution", record.id, {
     lineageId: record.lineageId,
     fromVersion: record.fromVersion,
     toVersion: record.toVersion,
@@ -973,7 +1099,9 @@ export function getEvolutionRecord(id: string): EvolutionRecord | null {
   return parseEvolutionRecordRow(result[0].values[0]);
 }
 
-export function getEvolutionRecordsByLineage(lineageId: string): EvolutionRecord[] {
+export function getEvolutionRecordsByLineage(
+  lineageId: string
+): EvolutionRecord[] {
   const db = getDatabase();
   const result = db.exec(
     `SELECT id, lineage_id, from_version, to_version, rollout_id, attempt_id, trigger_score, trigger_comment, trigger_directives, score_analysis, credit_assignment, plan, changes, next_score, score_delta, hypothesis_validated, created_at
@@ -985,11 +1113,19 @@ export function getEvolutionRecordsByLineage(lineageId: string): EvolutionRecord
   return result[0].values.map(parseEvolutionRecordRow);
 }
 
-export function updateEvolutionOutcome(id: string, outcome: UpdateEvolutionOutcomeInput): void {
+export function updateEvolutionOutcome(
+  id: string,
+  outcome: UpdateEvolutionOutcomeInput
+): void {
   const db = getDatabase();
   db.run(
     `UPDATE evolution_records SET next_score = ?, score_delta = ?, hypothesis_validated = ? WHERE id = ?`,
-    [outcome.nextScore, outcome.scoreDelta, outcome.hypothesisValidated ? 1 : 0, id]
+    [
+      outcome.nextScore,
+      outcome.scoreDelta,
+      outcome.hypothesisValidated ? 1 : 0,
+      id,
+    ]
   );
   saveDatabase();
 }
@@ -1008,7 +1144,9 @@ function parseEvolutionRecordRow(row: SqlRow): EvolutionRecord {
       directives: row[8] ? JSON.parse(row[8] as string) : {},
     },
     scoreAnalysis: JSON.parse(row[9] as string) as ScoreAnalysis,
-    creditAssignment: JSON.parse(row[10] as string) as PromptCredit[] | TrajectoryCredit[],
+    creditAssignment: JSON.parse(row[10] as string) as
+      | PromptCredit[]
+      | TrajectoryCredit[],
     plan: JSON.parse(row[11] as string) as EvolutionPlan,
     changes: JSON.parse(row[12] as string) as EvolutionChange[],
     createdAt: row[16] as number,
@@ -1028,7 +1166,9 @@ function parseEvolutionRecordRow(row: SqlRow): EvolutionRecord {
 
 // ============ Learning Insights ============
 
-export function createLearningInsight(input: CreateLearningInsightInput): LearningInsight {
+export function createLearningInsight(
+  input: CreateLearningInsightInput
+): LearningInsight {
   const db = getDatabase();
   const now = Date.now();
   const insight: LearningInsight = {
@@ -1079,7 +1219,9 @@ export function getLearningInsight(id: string): LearningInsight | null {
   return parseLearningInsightRow(result[0].values[0]);
 }
 
-export function getLearningInsightsBySession(sessionId: string): LearningInsight[] {
+export function getLearningInsightsBySession(
+  sessionId: string
+): LearningInsight[] {
   const db = getDatabase();
   const result = db.exec(
     `SELECT id, session_id, pattern, pattern_type, contexts, success_count, failure_count, avg_score_impact, confidence, created_at, updated_at
@@ -1091,7 +1233,10 @@ export function getLearningInsightsBySession(sessionId: string): LearningInsight
   return result[0].values.map(parseLearningInsightRow);
 }
 
-export function findInsightByPattern(sessionId: string, pattern: string): LearningInsight | null {
+export function findInsightByPattern(
+  sessionId: string,
+  pattern: string
+): LearningInsight | null {
   const db = getDatabase();
   const result = db.exec(
     `SELECT id, session_id, pattern, pattern_type, contexts, success_count, failure_count, avg_score_impact, confidence, created_at, updated_at
@@ -1103,19 +1248,24 @@ export function findInsightByPattern(sessionId: string, pattern: string): Learni
   return parseLearningInsightRow(result[0].values[0]);
 }
 
-export function recordInsightOutcome(id: string, outcome: 'success' | 'failure', scoreDelta: number): void {
+export function recordInsightOutcome(
+  id: string,
+  outcome: "success" | "failure",
+  scoreDelta: number
+): void {
   const db = getDatabase();
   const insight = getLearningInsight(id);
   if (!insight) return;
 
   const now = Date.now();
-  const isSuccess = outcome === 'success';
+  const isSuccess = outcome === "success";
   const newSuccessCount = insight.successCount + (isSuccess ? 1 : 0);
   const newFailureCount = insight.failureCount + (isSuccess ? 0 : 1);
   const totalCount = newSuccessCount + newFailureCount;
 
   // Calculate new average score impact
-  const oldTotal = insight.avgScoreImpact * (insight.successCount + insight.failureCount);
+  const oldTotal =
+    insight.avgScoreImpact * (insight.successCount + insight.failureCount);
   const newAvg = (oldTotal + scoreDelta) / totalCount;
 
   // Calculate confidence based on success rate and sample size
@@ -1154,7 +1304,10 @@ export interface UpdateLearningInsightInput {
   contexts?: string[];
 }
 
-export function updateLearningInsight(id: string, input: UpdateLearningInsightInput): void {
+export function updateLearningInsight(
+  id: string,
+  input: UpdateLearningInsightInput
+): void {
   const db = getDatabase();
   const insight = getLearningInsight(id);
   if (!insight) return;
@@ -1164,34 +1317,34 @@ export function updateLearningInsight(id: string, input: UpdateLearningInsightIn
   const values: (string | number)[] = [];
 
   if (input.successCount !== undefined) {
-    updates.push('success_count = ?');
+    updates.push("success_count = ?");
     values.push(input.successCount);
   }
   if (input.failureCount !== undefined) {
-    updates.push('failure_count = ?');
+    updates.push("failure_count = ?");
     values.push(input.failureCount);
   }
   if (input.avgScoreImpact !== undefined) {
-    updates.push('avg_score_impact = ?');
+    updates.push("avg_score_impact = ?");
     values.push(input.avgScoreImpact);
   }
   if (input.confidence !== undefined) {
-    updates.push('confidence = ?');
+    updates.push("confidence = ?");
     values.push(input.confidence);
   }
   if (input.contexts !== undefined) {
-    updates.push('contexts = ?');
+    updates.push("contexts = ?");
     values.push(JSON.stringify(input.contexts));
   }
 
   if (updates.length === 0) return;
 
-  updates.push('updated_at = ?');
+  updates.push("updated_at = ?");
   values.push(now);
   values.push(id);
 
   db.run(
-    `UPDATE learning_insights SET ${updates.join(', ')} WHERE id = ?`,
+    `UPDATE learning_insights SET ${updates.join(", ")} WHERE id = ?`,
     values
   );
   saveDatabase();

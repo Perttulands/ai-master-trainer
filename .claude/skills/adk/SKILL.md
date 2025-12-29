@@ -5,6 +5,10 @@ description: Build AI agents using Anthropic's Agent SDK. Use when creating agen
 
 # Anthropic Agent SDK Guide
 
+> **IMPORTANT**: This SDK is used ONLY for exported standalone code.
+> Training Camp runtime uses LiteLLM gateway (`src/api/llm.ts`), NOT Anthropic SDK directly.
+> This guide is for generating standalone agent code that users export and run independently.
+
 For scaffolding new projects, use `/new-sdk-app` from the agent-sdk-dev plugin.
 
 ## Quick Start
@@ -52,11 +56,17 @@ if (response.stop_reason === 'tool_use') {
 }
 ```
 
-## Training Camp Agents
+## Training Camp Architecture
 
-See [agents.md](agents.md) for project-specific implementations:
-- Master Trainer (evolution algorithm)
-- Lineage Executor (artifact generation)
+Training Camp uses two LLM integration patterns:
+
+1. **Runtime (LiteLLM)**: All agent execution within Training Camp goes through `src/api/llm.ts`
+   - Multi-model support via LiteLLM gateway
+   - OpenAI-compatible API format
+
+2. **Export (Anthropic SDK)**: Generated standalone code in `src/lib/export/to-typescript.ts`
+   - Users can export agents to run independently
+   - Requires user's own `ANTHROPIC_API_KEY`
 
 ## Streaming
 

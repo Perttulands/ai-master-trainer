@@ -2,12 +2,13 @@ export interface AgentTool {
   id: string;
   name: string;
   description: string;
-  type: 'builtin' | 'api' | 'function';
+  /**
+   * Tool type - currently only 'builtin' is supported.
+   * Future types may include 'api' (HTTP endpoints) or 'function' (code execution).
+   */
+  type: 'builtin';
   config: {
-    endpoint?: string;
-    method?: string;
-    headers?: Record<string, string>;
-    code?: string;
+    /** Name of the builtin tool to execute */
     builtinName?: string;
   };
   parameters: {

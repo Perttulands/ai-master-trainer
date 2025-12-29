@@ -47,7 +47,12 @@ export function Header({
                 {llmConnected ? <Zap className="w-3 h-3" /> : <ZapOff className="w-3 h-3" />}
                 {llmConnected ? 'LLM Connected' : 'Mock Mode'}
               </div>
-              {llmConnected && <ModelSelector />}
+              {llmConnected && (
+                <div className="flex items-center gap-2">
+                  <ModelSelector mode="trainer" />
+                  <ModelSelector mode="agent" />
+                </div>
+              )}
             </>
           )}
           {session && (
@@ -60,7 +65,12 @@ export function Header({
 
         {session && (
           <div className="flex items-center gap-3">
-            {llmConnected && <ModelSelector />}
+            {llmConnected && (
+              <div className="flex items-center gap-2">
+                <ModelSelector mode="trainer" />
+                <ModelSelector mode="agent" />
+              </div>
+            )}
             <div className="h-6 w-px bg-gray-200" />
             <Button
               variant="ghost"

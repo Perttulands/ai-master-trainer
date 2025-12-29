@@ -22,22 +22,22 @@ export { TRAINING_SIGNAL_SCHEMA_VERSION } from '../../types/training-signal';
 // ============ Content-Addressed Storage Helpers ============
 
 /**
- * Synchronous hash fallback using a simple hash function.
- * Used when async hash is not suitable (e.g., in synchronous code paths).
+ * Synchronous hash using djb2 algorithm for content-addressed storage.
+ * IMPORTANT: This hash is DETERMINISTIC - the same content will always
+ * produce the same hash. This enables proper deduplication.
+ *
+ * Previously this function added a timestamp which defeated deduplication
+ * and caused storage bloat.
  */
 function computeHashSync(content: string): string {
-  // Simple hash function for synchronous use
-  let hash = 0;
+  // djb2 hash - fast, deterministic, good distribution
+  let hash = 5381;
   for (let i = 0; i < content.length; i++) {
-    const char = content.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit integer
+    hash = ((hash << 5) + hash) ^ content.charCodeAt(i);
   }
-  // Convert to hex and pad to ensure consistent length
-  const hexHash = Math.abs(hash).toString(16).padStart(8, '0');
-  // Add timestamp component for uniqueness
-  const timestamp = Date.now().toString(16);
-  return `${hexHash}${timestamp}`;
+  // Format: djb2-{length in hex}-{hash in hex}
+  // This matches the format used in training-signal-queries.ts for consistency
+  return `djb2-${content.length.toString(16)}-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
 /**

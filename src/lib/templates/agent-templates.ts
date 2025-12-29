@@ -4,10 +4,13 @@ import type {
   AgentMemoryConfig,
   AgentParameters,
 } from '../../types/agent';
+import type { LineageLabel } from '../../types';
 import { generateId } from '../../utils/id';
 import { createSimpleFlow, createToolFlow, createConditionalFlow, createLoopFlow } from './flow-templates';
+import { getAgentModelId } from '../../api/llm';
 
-type LineageLabel = 'A' | 'B' | 'C' | 'D';
+// Placeholder - actual model is set at runtime in createAgentFromTemplate
+const TEMPLATE_MODEL_PLACEHOLDER = 'runtime-selected';
 
 interface StrategyTemplate {
   name: string;
@@ -188,7 +191,7 @@ Guidelines:
       config: {},
     },
     parameters: {
-      model: 'claude-sonnet-4-20250514',
+      model: TEMPLATE_MODEL_PLACEHOLDER,
       temperature: 0.3, // Lower temperature for consistent, focused responses
       maxTokens: 512, // Limited tokens for brevity
       topP: 0.9,
@@ -232,7 +235,7 @@ Approach:
       },
     },
     parameters: {
-      model: 'claude-sonnet-4-20250514',
+      model: TEMPLATE_MODEL_PLACEHOLDER,
       temperature: 0.5, // Moderate temperature for balance
       maxTokens: 2048, // More tokens for detailed responses
       topP: 0.95,
@@ -278,7 +281,7 @@ Remember: Innovation comes from exploring the edges, not the center.`;
       },
     },
     parameters: {
-      model: 'claude-sonnet-4-20250514',
+      model: TEMPLATE_MODEL_PLACEHOLDER,
       temperature: 0.8, // Higher temperature for creativity
       maxTokens: 1500,
       topP: 0.98, // More diverse token selection
@@ -326,10 +329,186 @@ Aim for the sweet spot: comprehensive enough to be useful, concise enough to be 
       },
     },
     parameters: {
-      model: 'claude-sonnet-4-20250514',
+      model: TEMPLATE_MODEL_PLACEHOLDER,
       temperature: 0.5, // Moderate temperature
       maxTokens: 1024, // Balanced token limit
       topP: 0.92,
+    },
+  },
+
+  // Strategy E - "Empathetic": Warm and supportive approach
+  E: {
+    name: 'Empathetic',
+    description: 'Warm, understanding approach that considers emotional context',
+    systemPromptTemplate: (need: string, constraints?: string) => {
+      let prompt = `You are an empathetic and supportive assistant. Your mission: ${need}
+
+Empathetic Approach:
+- Acknowledge the user's perspective and feelings
+- Use warm, encouraging language
+- Be patient and understanding
+- Provide reassurance when appropriate
+- Balance emotional support with practical help
+
+Guidelines:
+1. Listen actively and validate concerns
+2. Show genuine care and understanding
+3. Offer supportive guidance without judgment
+4. Celebrate successes and encourage through challenges
+5. Maintain a positive, hopeful tone`;
+
+      if (constraints) {
+        prompt += `\n\nConstraints to keep in mind:\n${constraints}`;
+      }
+
+      return prompt;
+    },
+    tools: [],
+    createFlow: createSimpleFlow,
+    memory: {
+      type: 'buffer',
+      config: {
+        maxMessages: 8,
+        maxTokens: 3000,
+      },
+    },
+    parameters: {
+      model: TEMPLATE_MODEL_PLACEHOLDER,
+      temperature: 0.6,
+      maxTokens: 1024,
+      topP: 0.95,
+    },
+  },
+
+  // Strategy F - "Formal": Professional and polished approach
+  F: {
+    name: 'Formal',
+    description: 'Professional, polished approach following formal conventions',
+    systemPromptTemplate: (need: string, constraints?: string) => {
+      let prompt = `You are a professional and formal assistant. Your objective: ${need}
+
+Formal Guidelines:
+- Maintain professional language and tone
+- Use proper grammar and structured responses
+- Follow established conventions and standards
+- Be respectful and courteous
+- Prioritize clarity and precision
+
+Standards:
+1. Use formal language without colloquialisms
+2. Structure responses with clear organization
+3. Cite sources and provide references when applicable
+4. Maintain objectivity and professionalism
+5. Ensure accuracy and reliability`;
+
+      if (constraints) {
+        prompt += `\n\nProfessional constraints:\n${constraints}`;
+      }
+
+      return prompt;
+    },
+    tools: [searchTool, analyzeTool],
+    createFlow: () => createToolFlow('analyze'),
+    memory: {
+      type: 'buffer',
+      config: {
+        maxMessages: 6,
+        maxTokens: 2500,
+      },
+    },
+    parameters: {
+      model: TEMPLATE_MODEL_PLACEHOLDER,
+      temperature: 0.4,
+      maxTokens: 1536,
+      topP: 0.9,
+    },
+  },
+
+  // Strategy G - "Casual": Relaxed and conversational approach
+  G: {
+    name: 'Casual',
+    description: 'Relaxed, conversational approach with approachable language',
+    systemPromptTemplate: (need: string, constraints?: string) => {
+      let prompt = `You are a friendly and casual assistant. Your goal: ${need}
+
+Casual Approach:
+- Use conversational, approachable language
+- Keep things light and friendly
+- Use relatable examples and analogies
+- Be genuine and personable
+- Make the interaction enjoyable
+
+Style:
+1. Chat naturally like a helpful friend
+2. Use simple, everyday language
+3. Add personality to your responses
+4. Keep explanations accessible
+5. Don't be afraid to be a bit playful`;
+
+      if (constraints) {
+        prompt += `\n\nJust keep in mind:\n${constraints}`;
+      }
+
+      return prompt;
+    },
+    tools: [],
+    createFlow: createSimpleFlow,
+    memory: {
+      type: 'buffer',
+      config: {
+        maxMessages: 8,
+        maxTokens: 2000,
+      },
+    },
+    parameters: {
+      model: TEMPLATE_MODEL_PLACEHOLDER,
+      temperature: 0.7,
+      maxTokens: 1024,
+      topP: 0.95,
+    },
+  },
+
+  // Strategy H - "Hybrid": Adaptive blend of multiple approaches
+  H: {
+    name: 'Hybrid',
+    description: 'Adaptive blend of multiple approaches based on context',
+    systemPromptTemplate: (need: string, constraints?: string) => {
+      let prompt = `You are an adaptive and versatile assistant. Your objective: ${need}
+
+Hybrid Approach:
+- Blend different styles based on context
+- Adapt your tone to match the situation
+- Combine analytical rigor with creative thinking
+- Balance formality with accessibility
+- Be flexible and responsive to user needs
+
+Adaptive Framework:
+1. Assess the nature and context of each request
+2. Select the most appropriate communication style
+3. Blend techniques from multiple approaches
+4. Adjust based on user feedback and preferences
+5. Maintain consistency while being adaptable`;
+
+      if (constraints) {
+        prompt += `\n\nOperating parameters:\n${constraints}`;
+      }
+
+      return prompt;
+    },
+    tools: [searchTool, brainstormTool],
+    createFlow: createConditionalFlow,
+    memory: {
+      type: 'buffer',
+      config: {
+        maxMessages: 7,
+        maxTokens: 3000,
+      },
+    },
+    parameters: {
+      model: TEMPLATE_MODEL_PLACEHOLDER,
+      temperature: 0.5,
+      maxTokens: 1280,
+      topP: 0.93,
     },
   },
 };
@@ -364,7 +543,10 @@ export function createAgentFromTemplate(
     })),
     flow: template.createFlow(),
     memory: template.memory,
-    parameters: template.parameters,
+    parameters: {
+      ...template.parameters,
+      model: getAgentModelId(), // Always use current selection at runtime
+    },
     createdAt: now,
     updatedAt: now,
   };
@@ -394,7 +576,7 @@ export function getStrategyInfo(label: LineageLabel): {
  * Get all available strategy labels
  */
 export function getStrategyLabels(): LineageLabel[] {
-  return ['A', 'B', 'C', 'D'];
+  return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 }
 
 /**
@@ -415,5 +597,9 @@ export function getStrategySummary(): Record<
     B: getStrategyInfo('B'),
     C: getStrategyInfo('C'),
     D: getStrategyInfo('D'),
+    E: getStrategyInfo('E'),
+    F: getStrategyInfo('F'),
+    G: getStrategyInfo('G'),
+    H: getStrategyInfo('H'),
   };
 }

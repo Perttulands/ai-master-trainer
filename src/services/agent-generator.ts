@@ -69,50 +69,48 @@ Output ONLY the enhanced system prompt - no explanations or meta-commentary.`;
 /**
  * Generate initial agents for all 4 lineages.
  * Creates unique agent definitions based on each strategy template,
- * optionally enhanced by LLM for the specific user need.
+ * enhanced by LLM for the specific user need.
+ *
+ * IMPORTANT: LLM must be configured for this function to work.
+ * Throws an error if LLM is not configured.
  *
  * @param sessionId - The session ID for tracking
  * @param need - The user's expressed need/goal
  * @param constraints - Optional constraints to apply
  * @returns Array of 4 lineage configurations with full agent definitions
+ * @throws Error if LLM is not configured
  */
 export async function generateInitialAgents(
   _sessionId: string,
   need: string,
   constraints?: string
 ): Promise<GeneratedLineageConfig[]> {
+  // Require LLM to be configured - no more fallback mode
+  if (!isLLMConfigured()) {
+    throw new Error(
+      'LLM not configured. Set VITE_LITELLM_API_BASE and VITE_LITELLM_API_KEY environment variables.'
+    );
+  }
+
   const labels: LineageLabel[] = ['A', 'B', 'C', 'D'];
   const startTime = Date.now();
 
   // Generate all 4 agents in parallel for speed
   const promises = labels.map(async (label) => {
-    try {
-      // Create base agent from template
-      let agent = createAgentFromTemplate(label, need, constraints);
+    // Create base agent from template
+    let agent = createAgentFromTemplate(label, need, constraints);
 
-      // If LLM is configured, enhance the agent's system prompt
-      if (isLLMConfigured()) {
-        agent = await enhanceAgentForNeed(agent, need, constraints);
-      }
+    // Enhance the agent's system prompt with LLM
+    agent = await enhanceAgentForNeed(agent, need, constraints);
 
-      // Generate initial content by executing the agent
-      const executionResult = await executeAgent(agent, need, undefined);
+    // Generate initial content by executing the agent
+    const executionResult = await executeAgent(agent, need, undefined);
 
-      return {
-        label,
-        agent,
-        content: executionResult.output,
-      };
-    } catch (error) {
-      console.error(`Failed to generate agent for lineage ${label}:`, error);
-      // Fall back to template-only agent with fallback content
-      const fallbackAgent = createAgentFromTemplate(label, need, constraints);
-      return {
-        label,
-        agent: fallbackAgent,
-        content: generateFallbackContent(label, need, constraints),
-      };
-    }
+    return {
+      label,
+      agent,
+      content: executionResult.output,
+    };
   });
 
   const results = await Promise.all(promises);
@@ -127,10 +125,13 @@ export async function generateInitialAgents(
  * Execute an agent against input to produce output.
  * Builds a prompt from the agent's configuration and calls the LLM.
  *
+ * IMPORTANT: LLM must be configured for this function to work.
+ *
  * @param agent - The agent definition to execute
  * @param input - The user input to process
  * @param context - Optional session context (documents, examples, test cases)
  * @returns The output and execution metadata
+ * @throws Error if LLM is not configured or execution fails
  */
 export async function executeAgent(
   agent: AgentDefinition,
@@ -139,40 +140,40 @@ export async function executeAgent(
 ): Promise<ExecutionResult> {
   const startTime = Date.now();
 
+  // Require LLM to be configured - no more fallback mode
   if (!isLLMConfigured()) {
-    // Return simulated execution when LLM is not available
-    return generateFallbackExecution(agent, input, startTime);
+    throw new Error(
+      'LLM not configured. Set VITE_LITELLM_API_BASE and VITE_LITELLM_API_KEY environment variables.'
+    );
   }
 
-  try {
-    // Build the execution prompt
-    const executionPrompt = buildExecutionPrompt(agent, input, context);
+  // Build the execution prompt
+  const executionPrompt = buildExecutionPrompt(agent, input, context);
 
-    // Call the LLM with agent's parameters
-    const output = await generateWithSystem(agent.systemPrompt, executionPrompt, {
-      maxTokens: agent.parameters.maxTokens,
-      temperature: agent.parameters.temperature,
-    });
+  // Call the LLM with agent's parameters
+  const output = await generateWithSystem(agent.systemPrompt, executionPrompt, {
+    maxTokens: agent.parameters.maxTokens,
+    temperature: agent.parameters.temperature,
+  });
 
-    const latencyMs = Date.now() - startTime;
+  const latencyMs = Date.now() - startTime;
 
-    return {
-      output: output.trim(),
-      metadata: {
-        toolsUsed: extractToolsFromFlow(agent.flow),
-        tokensUsed: estimateTokens(agent.systemPrompt + executionPrompt + output),
-        latencyMs,
-      },
-    };
-  } catch (error) {
-    console.error('Agent execution failed:', error);
-    return generateFallbackExecution(agent, input, startTime);
-  }
+  return {
+    output: output.trim(),
+    metadata: {
+      toolsUsed: extractToolsFromFlow(agent.flow),
+      tokensUsed: estimateTokens(agent.systemPrompt + executionPrompt + output),
+      latencyMs,
+    },
+  };
 }
 
 /**
  * Evolve an agent based on evaluation feedback.
  * Adjusts the agent's system prompt and parameters based on score and directives.
+ *
+ * IMPORTANT: LLM must be configured for full evolution. Without LLM,
+ * only parameter adjustments and directive appending are possible.
  *
  * @param agent - The current agent definition
  * @param score - The evaluation score (1-10)
@@ -180,6 +181,7 @@ export async function executeAgent(
  * @param oneshotDirective - One-time directive to apply this cycle only
  * @param need - The original user need
  * @returns The evolved agent definition
+ * @throws Error if LLM is not configured
  */
 export async function evolveAgent(
   agent: AgentDefinition,
@@ -188,6 +190,13 @@ export async function evolveAgent(
   oneshotDirective: string | null,
   need: string
 ): Promise<AgentDefinition> {
+  // Require LLM to be configured for proper evolution
+  if (!isLLMConfigured()) {
+    throw new Error(
+      'LLM not configured. Set VITE_LITELLM_API_BASE and VITE_LITELLM_API_KEY environment variables.'
+    );
+  }
+
   const evolvedAgent: AgentDefinition = {
     ...agent,
     id: generateId(),
@@ -198,32 +207,14 @@ export async function evolveAgent(
   // Adjust parameters based on score
   evolvedAgent.parameters = adjustParametersForScore(agent.parameters, score);
 
-  // Evolve system prompt if LLM is available
-  if (isLLMConfigured()) {
-    try {
-      evolvedAgent.systemPrompt = await evolveSystemPrompt(
-        agent.systemPrompt,
-        score,
-        stickyDirective,
-        oneshotDirective,
-        need
-      );
-    } catch (error) {
-      console.error('Failed to evolve system prompt:', error);
-      // Keep original prompt with directive additions
-      evolvedAgent.systemPrompt = appendDirectivesToPrompt(
-        agent.systemPrompt,
-        stickyDirective,
-        oneshotDirective
-      );
-    }
-  } else {
-    evolvedAgent.systemPrompt = appendDirectivesToPrompt(
-      agent.systemPrompt,
-      stickyDirective,
-      oneshotDirective
-    );
-  }
+  // Evolve system prompt using LLM
+  evolvedAgent.systemPrompt = await evolveSystemPrompt(
+    agent.systemPrompt,
+    score,
+    stickyDirective,
+    oneshotDirective,
+    need
+  );
 
   return evolvedAgent;
 }
@@ -486,26 +477,7 @@ function adjustParametersForScore(
   return adjusted;
 }
 
-/**
- * Append directives to an existing system prompt.
- */
-function appendDirectivesToPrompt(
-  prompt: string,
-  stickyDirective: string | null,
-  oneshotDirective: string | null
-): string {
-  let enhanced = prompt;
-
-  if (stickyDirective) {
-    enhanced += `\n\nPersistent Directive: ${stickyDirective}`;
-  }
-
-  if (oneshotDirective) {
-    enhanced += `\n\nImmediate Directive (this response only): ${oneshotDirective}`;
-  }
-
-  return enhanced;
-}
+// NOTE: appendDirectivesToPrompt removed - LLM-based evolution now handles directives
 
 /**
  * Merge tools from two agents, removing duplicates.
@@ -587,105 +559,9 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-// ============================================================================
-// Fallback Functions (when LLM is not configured)
-// ============================================================================
-
-/**
- * Generate fallback content when LLM is not available.
- */
-function generateFallbackContent(
-  label: LineageLabel,
-  need: string,
-  constraints?: string
-): string {
-  const info = getStrategyInfo(label);
-  const constraintNote = constraints ? `\n\nConstraints: ${constraints}` : '';
-
-  return `[${info.name.toUpperCase()} APPROACH - Agent ${label}]
-
-Addressing: "${need}"
-
-This is a placeholder artifact generated without LLM access.
-
-Agent Configuration:
-- Strategy: ${info.name} (${info.description})
-- Tools: ${info.toolCount} available
-- Memory: ${info.memoryType}
-- Temperature: ${info.temperature}
-
-In production with LLM configured, this agent would generate a fully realized ${info.name.toLowerCase()} response tailored to your specific need.
-
-Key characteristics of this approach:
-- ${getApproachCharacteristics(label).join('\n- ')}${constraintNote}
-
-To enable AI-powered generation, configure VITE_LITELLM_API_BASE and VITE_LITELLM_API_KEY in your environment.`;
-}
-
-/**
- * Generate fallback execution result.
- */
-function generateFallbackExecution(
-  agent: AgentDefinition,
-  input: string,
-  startTime: number
-): ExecutionResult {
-  const latencyMs = Date.now() - startTime;
-
-  return {
-    output: `[SIMULATED EXECUTION]
-
-Agent: ${agent.name}
-Input: "${input.substring(0, 100)}${input.length > 100 ? '...' : ''}"
-
-This is a simulated response. The agent would process this input using:
-- System prompt with ${agent.systemPrompt.length} characters
-- ${agent.tools.length} available tools
-- ${agent.flow.length}-step execution flow
-- Temperature: ${agent.parameters.temperature}
-
-Configure LLM API to enable real agent execution.`,
-    metadata: {
-      toolsUsed: [],
-      tokensUsed: 0,
-      latencyMs,
-    },
-  };
-}
-
-/**
- * Get approach characteristics for a lineage label.
- */
-function getApproachCharacteristics(label: LineageLabel): string[] {
-  const characteristics: Record<LineageLabel, string[]> = {
-    A: [
-      'Brief and direct responses',
-      'Essential information only',
-      'Fast execution with minimal overhead',
-      'No tool dependencies',
-    ],
-    B: [
-      'Comprehensive, well-structured responses',
-      'Multiple perspectives considered',
-      'Uses tools for research and validation',
-      'Detailed context and reasoning',
-    ],
-    C: [
-      'Innovative and unconventional approaches',
-      'Creative problem-solving techniques',
-      'Iterative refinement process',
-      'Explores multiple alternatives',
-    ],
-    D: [
-      'Balanced depth based on complexity',
-      'Strategic tool usage when beneficial',
-      'Adaptive response formatting',
-      'Efficient yet thorough',
-    ],
-  };
-
-  return characteristics[label];
-}
+// NOTE: Fallback functions removed. LLM is now required for all operations.
+// See generateInitialAgents(), executeAgent(), and evolveAgent() which all
+// throw errors when LLM is not configured.
 
 // ============================================================================
 // Utility Exports

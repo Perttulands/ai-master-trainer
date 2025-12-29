@@ -39,11 +39,15 @@ Temperature guidelines:
  */
 export async function proposeInitialStrategies(
   need: string,
-  constraints?: string
+  constraints?: string,
+  agentCount: number = 4
 ): Promise<StrategyMessage> {
   if (!isLLMConfigured()) {
-    return generateFallbackProposal(need);
+    return generateFallbackProposal(need, agentCount);
   }
+
+  const labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].slice(0, agentCount);
+  const labelList = labels.join(', ');
 
   let userPrompt = `The user wants to create an AI agent for this need:
 
@@ -58,7 +62,7 @@ ${constraints}`;
 
   userPrompt += `
 
-Please propose 4 distinct strategies for the agent lineages (A, B, C, D). Each should explore a meaningfully different approach to solving this problem. Explain your thinking and include the strategies JSON block.`;
+Please propose ${agentCount} distinct ${agentCount === 1 ? 'strategy' : 'strategies'} for the agent ${agentCount === 1 ? 'lineage' : 'lineages'} (${labelList}). Each should explore a meaningfully different approach to solving this problem. Explain your thinking and include the strategies JSON block.`;
 
   try {
     const response = await generateWithSystem(STRATEGY_ADVISOR_SYSTEM_PROMPT, userPrompt, {
@@ -77,7 +81,7 @@ Please propose 4 distinct strategies for the agent lineages (A, B, C, D). Each s
     };
   } catch (error) {
     console.error('Failed to propose strategies:', error);
-    return generateFallbackProposal(need);
+    return generateFallbackProposal(need, agentCount);
   }
 }
 
@@ -153,14 +157,15 @@ function parseStrategiesFromResponse(response: string): CustomStrategy[] {
     try {
       const strategiesJson = strategiesMatch[1].trim();
       const parsed = JSON.parse(strategiesJson);
+      const allLabels: Array<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H'> = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
-      if (Array.isArray(parsed) && parsed.length === 4) {
+      if (Array.isArray(parsed) && parsed.length >= 1 && parsed.length <= 8) {
         return parsed.map((s, index) => ({
-          label: (['A', 'B', 'C', 'D'] as const)[index],
-          name: s.name || DEFAULT_STRATEGIES[index].name,
-          description: s.description || DEFAULT_STRATEGIES[index].description,
-          style: s.style || DEFAULT_STRATEGIES[index].style,
-          temperature: typeof s.temperature === 'number' ? s.temperature : DEFAULT_STRATEGIES[index].temperature,
+          label: allLabels[index],
+          name: s.name || DEFAULT_STRATEGIES[index % 4].name,
+          description: s.description || DEFAULT_STRATEGIES[index % 4].description,
+          style: s.style || DEFAULT_STRATEGIES[index % 4].style,
+          temperature: typeof s.temperature === 'number' ? s.temperature : DEFAULT_STRATEGIES[index % 4].temperature,
         }));
       }
     } catch (e) {
@@ -177,7 +182,8 @@ function parseStrategiesFromResponse(response: string): CustomStrategy[] {
  */
 function extractStrategiesFromText(response: string): CustomStrategy[] {
   const strategies: CustomStrategy[] = [];
-  const labels: Array<'A' | 'B' | 'C' | 'D'> = ['A', 'B', 'C', 'D'];
+  const labels: Array<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H'> = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+  const defaultTemperatures: Record<string, number> = { A: 0.3, B: 0.5, C: 0.9, D: 0.4, E: 0.5, F: 0.6, G: 0.7, H: 0.8 };
 
   for (const label of labels) {
     // Look for patterns like "Lineage A - Name:" or "**A - Name**" or "A: Name"
@@ -198,39 +204,42 @@ function extractStrategiesFromText(response: string): CustomStrategy[] {
           name,
           description,
           style: description.toLowerCase(),
-          temperature: label === 'A' ? 0.3 : label === 'B' ? 0.5 : label === 'C' ? 0.9 : 0.4,
+          temperature: defaultTemperatures[label] ?? 0.5,
         });
         break;
       }
     }
   }
 
-  // If we found all 4, return them; otherwise return empty to use defaults
-  return strategies.length === 4 ? strategies : [];
+  // Return strategies if we found any; otherwise return empty to use defaults
+  return strategies.length >= 1 ? strategies : [];
 }
 
 /**
  * Generate fallback proposal when LLM is unavailable
  */
-function generateFallbackProposal(need: string): StrategyMessage {
-  const content = `I'll help you design 4 distinct strategies for your agent. Based on your need:
+function generateFallbackProposal(need: string, agentCount: number = 4): StrategyMessage {
+  const strategies = DEFAULT_STRATEGIES.slice(0, agentCount);
+
+  const strategyDescriptions = [
+    '**Lineage A - Concise**: Focused on delivering clear, brief responses without unnecessary details. Best for users who want quick answers.',
+    '**Lineage B - Detailed**: Provides comprehensive, well-structured responses with examples. Ideal for complex topics requiring thorough explanation.',
+    '**Lineage C - Creative**: Engages with innovative angles, unique perspectives, and fresh approaches. Great for brainstorming or novel solutions.',
+    '**Lineage D - Analytical**: Approaches tasks methodically with step-by-step reasoning. Perfect for technical or data-driven needs.',
+  ].slice(0, agentCount);
+
+  const content = `I'll help you design ${agentCount} distinct ${agentCount === 1 ? 'strategy' : 'strategies'} for your agent. Based on your need:
 
 "${need}"
 
-Here are my initial proposals:
+Here ${agentCount === 1 ? 'is my initial proposal' : 'are my initial proposals'}:
 
-**Lineage A - Concise**: Focused on delivering clear, brief responses without unnecessary details. Best for users who want quick answers.
+${strategyDescriptions.join('\n\n')}
 
-**Lineage B - Detailed**: Provides comprehensive, well-structured responses with examples. Ideal for complex topics requiring thorough explanation.
-
-**Lineage C - Creative**: Engages with innovative angles, unique perspectives, and fresh approaches. Great for brainstorming or novel solutions.
-
-**Lineage D - Analytical**: Approaches tasks methodically with step-by-step reasoning. Perfect for technical or data-driven needs.
-
-Would you like to adjust any of these strategies to better fit your specific use case?
+Would you like to adjust ${agentCount === 1 ? 'this strategy' : 'any of these strategies'} to better fit your specific use case?
 
 \`\`\`strategies
-${JSON.stringify(DEFAULT_STRATEGIES, null, 2)}
+${JSON.stringify(strategies, null, 2)}
 \`\`\``;
 
   return {
@@ -238,7 +247,7 @@ ${JSON.stringify(DEFAULT_STRATEGIES, null, 2)}
     role: 'assistant',
     content,
     timestamp: Date.now(),
-    proposedStrategies: DEFAULT_STRATEGIES,
+    proposedStrategies: strategies,
   };
 }
 
