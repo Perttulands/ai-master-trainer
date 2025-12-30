@@ -81,7 +81,7 @@ describe('agent-evolver', () => {
         const result = await evolveSystemPrompt(
           'You are a helpful assistant.',
           8,
-          'Focus on brevity'
+          ['Focus on brevity']
         );
 
         expect(result).toContain('Focus on brevity');
@@ -117,7 +117,7 @@ describe('agent-evolver', () => {
         const result = await evolveSystemPrompt(
           'You are a helpful assistant.',
           2,
-          'Be extra concise'
+          ['Be extra concise']
         );
 
         expect(result).toContain('SPECIFIC GUIDANCE');
@@ -339,8 +339,8 @@ describe('agent-evolver', () => {
         'test need',
         5,
         'feedback comment',
-        'sticky directive',
-        'oneshot directive'
+        ['sticky directive'],
+        ['oneshot directive']
       );
 
       // The prompt should contain influences from directives
@@ -391,7 +391,7 @@ describe('agent-evolver', () => {
       const result = await evolveAgent(agent, 'test need', 6, null, null, null);
       expect(result).toBeDefined();
 
-      const result2 = await evolveAgent(agent, 'test need', 6, undefined as unknown as string, undefined as unknown as string, undefined as unknown as string);
+      const result2 = await evolveAgent(agent, 'test need', 6, undefined as unknown as string, undefined as unknown as string[], undefined as unknown as string[]);
       expect(result2).toBeDefined();
     });
   });

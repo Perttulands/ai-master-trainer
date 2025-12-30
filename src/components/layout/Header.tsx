@@ -3,6 +3,7 @@ import { ArrowLeft, History, Download, RefreshCw, Zap, ZapOff } from 'lucide-rea
 import { Button, ModelSelector } from '../ui';
 import type { Session } from '../../types';
 import { isLLMConfigured } from '../../api/llm';
+import { cn } from '../../utils/cn';
 
 interface HeaderProps {
   session?: Session | null;
@@ -93,9 +94,12 @@ export function Header({
               <Button
                 onClick={onRegenerate}
                 disabled={!canRegenerate || isRegenerating}
+                title="Regenerate Unlocked"
               >
-                <RefreshCw className={`w-4 h-4 mr-1 ${isRegenerating ? 'animate-spin' : ''}`} />
-                {isRegenerating ? 'Regenerating...' : 'Regenerate Unlocked'}
+                <RefreshCw className={cn("w-4 h-4", isRegenerating && "animate-spin", "md:mr-1")} />
+                <span className="hidden md:inline">
+                  {isRegenerating ? 'Regenerating...' : 'Regenerate Unlocked'}
+                </span>
               </Button>
             )}
           </div>

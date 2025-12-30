@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User } from 'lucide-react';
+import { Send, Bot, User, Trash2 } from 'lucide-react';
 import { Button, Textarea } from '../ui';
 import { ActionProposalCard } from './ActionProposalCard';
 import type { TrainerMessage, TrainerAction } from '../../types';
@@ -8,10 +8,11 @@ interface TrainerPanelProps {
   messages: TrainerMessage[];
   onSendMessage: (message: string) => void;
   onApplyActions?: (actions: TrainerAction[]) => Promise<void>;
+  onResetChat?: () => void;
   isLoading?: boolean;
 }
 
-export function TrainerPanel({ messages, onSendMessage, onApplyActions, isLoading = false }: TrainerPanelProps) {
+export function TrainerPanel({ messages, onSendMessage, onApplyActions, onResetChat, isLoading = false }: TrainerPanelProps) {
   const [input, setInput] = useState('');
   const [applyingMessageId, setApplyingMessageId] = useState<string | null>(null);
   const [dismissedActions, setDismissedActions] = useState<Set<string>>(new Set());
@@ -48,7 +49,7 @@ export function TrainerPanel({ messages, onSendMessage, onApplyActions, isLoadin
   return (
     <div className="h-full flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-100 flex-shrink-0">
+      <div className="px-4 py-3 border-b border-gray-100 flex-shrink-0 flex justify-between items-center">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center">
             <Bot className="w-5 h-5 text-primary-600" />
@@ -58,6 +59,15 @@ export function TrainerPanel({ messages, onSendMessage, onApplyActions, isLoadin
             <p className="text-xs text-gray-500">AI-powered evolution guidance</p>
           </div>
         </div>
+        {onResetChat && messages.length > 0 && (
+          <button
+            onClick={onResetChat}
+            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            title="Reset Chat"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Messages */}

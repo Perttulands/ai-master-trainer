@@ -1,9 +1,11 @@
-import type { Database, SqlJsStatic } from 'sql.js';
-import { CREATE_TABLES_SQL, SCHEMA_VERSION, MIGRATIONS } from './schema';
+import type { Database, SqlJsStatic } from "sql.js";
+import { CREATE_TABLES_SQL, SCHEMA_VERSION, MIGRATIONS } from "./schema";
 
 let db: Database | null = null;
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+const SAVE_DEBOUNCE_MS = 1000;
 
-const DB_STORAGE_KEY = 'training-camp-db';
+const DB_STORAGE_KEY = "training-camp-db";
 
 /**
  * Convert Uint8Array to Base64 string using chunked processing.
@@ -11,10 +13,10 @@ const DB_STORAGE_KEY = 'training-camp-db';
  * on large arrays (> ~10KB).
  */
 export function uint8ArrayToBase64(data: Uint8Array): string {
-  if (data.length === 0) return '';
+  if (data.length === 0) return "";
 
   const CHUNK_SIZE = 8192;
-  let binary = '';
+  let binary = "";
   for (let i = 0; i < data.length; i += CHUNK_SIZE) {
     const chunk = data.subarray(i, Math.min(i + CHUNK_SIZE, data.length));
     binary += String.fromCharCode.apply(null, Array.from(chunk));
@@ -26,7 +28,7 @@ export function uint8ArrayToBase64(data: Uint8Array): string {
  * Convert Base64 string back to Uint8Array.
  */
 export function base64ToUint8Array(base64: string): Uint8Array {
-  if (base64 === '') return new Uint8Array(0);
+  if (base64 === "") return new Uint8Array(0);
 
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -48,9 +50,9 @@ export function _getDbForTesting(): Database | null {
 export async function initDatabase(): Promise<Database> {
   if (db) return db;
 
-  console.log('Training Camp: Loading sql.js WASM...');
+  console.log("Training Camp: Loading sql.js WASM...");
   // Dynamic import to handle CommonJS/ESM interop
-  const sqlJsModule = await import('sql.js');
+  const sqlJsModule = await import("sql.js");
   const initSqlJs = (sqlJsModule.default || sqlJsModule) as (config?: {
     locateFile?: (file: string) => string;
   }) => Promise<SqlJsStatic>;
@@ -59,7 +61,7 @@ export async function initDatabase(): Promise<Database> {
     // Use local WASM file (copied from node_modules to public folder)
     locateFile: (file: string) => `/${file}`,
   });
-  console.log('Training Camp: sql.js loaded successfully');
+  console.log("Training Camp: sql.js loaded successfully");
 
   // Try to load existing database from localStorage
   const savedData = localStorage.getItem(DB_STORAGE_KEY);
@@ -68,7 +70,7 @@ export async function initDatabase(): Promise<Database> {
       const data = base64ToUint8Array(savedData);
       db = new SQL.Database(data);
     } catch (e) {
-      console.warn('Failed to load saved database, creating new one:', e);
+      console.warn("Failed to load saved database, creating new one:", e);
       db = new SQL.Database();
     }
   } else {
@@ -79,7 +81,17 @@ export async function initDatabase(): Promise<Database> {
   applyMigrations(db);
 
   // Save after migrations
-  saveDatabase();
+  saveDatabase(true);
+
+  // Ensure data is saved on page unload
+  if (typeof window !== "undefined") {
+    window.addEventListener("beforeunload", () => {
+      if (saveTimeout) {
+        clearTimeout(saveTimeout);
+        performSave();
+      }
+    });
+  }
 
   return db;
 }
@@ -97,57 +109,73 @@ export function applyMigrations(database: Database): void {
   const tableCheck = database.exec(
     "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
   );
-  const hasSchemaVersion = tableCheck.length > 0 && tableCheck[0].values.length > 0;
+  const hasSchemaVersion =
+    tableCheck.length > 0 && tableCheck[0].values.length > 0;
 
   if (!hasSchemaVersion) {
     // Fresh database - create all tables with current schema
-    console.log('Training Camp: Creating fresh database at version', SCHEMA_VERSION);
+    console.log(
+      "Training Camp: Creating fresh database at version",
+      SCHEMA_VERSION
+    );
     database.run(CREATE_TABLES_SQL);
-    database.run('INSERT INTO schema_version (version) VALUES (?)', [SCHEMA_VERSION]);
+    database.run("INSERT INTO schema_version (version) VALUES (?)", [
+      SCHEMA_VERSION,
+    ]);
     return;
   }
 
   // Existing database - check version and apply migrations
-  const result = database.exec('SELECT version FROM schema_version LIMIT 1');
-  const currentVersion = result.length > 0 ? (result[0].values[0][0] as number) : 0;
+  const result = database.exec("SELECT version FROM schema_version LIMIT 1");
+  const currentVersion =
+    result.length > 0 ? (result[0].values[0][0] as number) : 0;
 
   if (currentVersion >= SCHEMA_VERSION) {
-    console.log('Training Camp: Database already at version', currentVersion);
+    console.log("Training Camp: Database already at version", currentVersion);
     return;
   }
 
-  console.log(`Training Camp: Migrating database from version ${currentVersion} to ${SCHEMA_VERSION}`);
+  console.log(
+    `Training Camp: Migrating database from version ${currentVersion} to ${SCHEMA_VERSION}`
+  );
 
   // Find and apply all pending migrations in order
-  const pendingMigrations = MIGRATIONS
-    .filter(m => m.fromVersion >= currentVersion && m.toVersion <= SCHEMA_VERSION)
-    .sort((a, b) => a.fromVersion - b.fromVersion);
+  const pendingMigrations = MIGRATIONS.filter(
+    (m) => m.fromVersion >= currentVersion && m.toVersion <= SCHEMA_VERSION
+  ).sort((a, b) => a.fromVersion - b.fromVersion);
 
   for (const migration of pendingMigrations) {
-    console.log(`Training Camp: Applying migration ${migration.fromVersion} → ${migration.toVersion}`);
+    console.log(
+      `Training Camp: Applying migration ${migration.fromVersion} → ${migration.toVersion}`
+    );
     try {
       database.run(migration.sql);
       // Update version after each successful migration
-      database.run('UPDATE schema_version SET version = ?', [migration.toVersion]);
+      database.run("UPDATE schema_version SET version = ?", [
+        migration.toVersion,
+      ]);
     } catch (error) {
-      console.error(`Training Camp: Migration ${migration.fromVersion} → ${migration.toVersion} failed:`, error);
+      console.error(
+        `Training Camp: Migration ${migration.fromVersion} → ${migration.toVersion} failed:`,
+        error
+      );
       throw error;
     }
   }
 
-  console.log('Training Camp: Database migration complete');
+  console.log("Training Camp: Database migration complete");
 }
 
 export function getDatabase(): Database {
   if (!db) {
-    throw new Error('Database not initialized. Call initDatabase() first.');
+    throw new Error("Database not initialized. Call initDatabase() first.");
   }
   return db;
 }
 
-export function saveDatabase(): void {
+function performSave(): void {
   if (!db) {
-    throw new Error('Database not initialized');
+    throw new Error("Database not initialized");
   }
 
   const data = db.export();
@@ -156,16 +184,38 @@ export function saveDatabase(): void {
   try {
     localStorage.setItem(DB_STORAGE_KEY, base64);
   } catch (e) {
-    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-      throw new Error('Storage quota exceeded. Export your data or clear old sessions.');
+    if (e instanceof DOMException && e.name === "QuotaExceededError") {
+      throw new Error(
+        "Storage quota exceeded. Export your data or clear old sessions."
+      );
     }
     throw e;
   }
 }
 
+export function saveDatabase(immediate = false): void {
+  if (!db) {
+    throw new Error("Database not initialized");
+  }
+
+  if (saveTimeout) {
+    clearTimeout(saveTimeout);
+    saveTimeout = null;
+  }
+
+  if (immediate) {
+    performSave();
+  } else {
+    saveTimeout = setTimeout(() => {
+      performSave();
+      saveTimeout = null;
+    }, SAVE_DEBOUNCE_MS);
+  }
+}
+
 export function closeDatabase(): void {
   if (db) {
-    saveDatabase();
+    saveDatabase(true);
     db.close();
     db = null;
   }

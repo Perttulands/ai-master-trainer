@@ -5,10 +5,12 @@
  * permissions and creating execution spans for observability.
  */
 
-import { toolRegistry, type ToolResult } from './registry';
-import { createSpan } from '../../db/queries';
-import { generateId } from '../../utils/id';
-import type { AgentDefinition } from '../../types/agent';
+import { toolRegistry, type ToolResult } from "./registry";
+import { createSpan } from "../../db/queries";
+import { generateId } from "../../utils/id";
+import type { AgentDefinition } from "../../types/agent";
+
+import type { ExecutionSpan } from "../../types/evolution";
 
 /**
  * A tool call as received from an LLM response
@@ -33,6 +35,8 @@ export interface ToolCallResult {
   result: ToolResult;
   /** The execution span ID (if created) */
   spanId?: string;
+  /** The execution span (if created) */
+  span?: ExecutionSpan;
   /** Whether the tool was allowed for this agent */
   allowed: boolean;
 }
@@ -76,16 +80,18 @@ function isToolAllowed(toolName: string, agent?: AgentDefinition): boolean {
 
   // Check if tool is defined in agent's tools array
   const agentTool = agent.tools.find((t) => {
-    if (t.type === 'builtin' && t.config.builtinName === toolName) {
+    if (t.type === "builtin" && t.config.builtinName === toolName) {
       return true;
     }
     return t.name === toolName;
   });
 
   // Tool must be defined in agent's tools or in allowedTools constraint
-  return !!agentTool || (agent.constraints?.allowedTools?.includes(toolName) ?? false);
+  return (
+    !!agentTool ||
+    (agent.constraints?.allowedTools?.includes(toolName) ?? false)
+  );
 }
-
 
 /**
  * Execute a single tool call
@@ -94,7 +100,13 @@ export async function executeToolCall(
   toolCall: ToolCall,
   options: ExecuteToolCallsOptions = {}
 ): Promise<ToolCallResult> {
-  const { agent, attemptId, parentSpanId, createSpans = true, context } = options;
+  const {
+    agent,
+    attemptId,
+    parentSpanId,
+    createSpans = true,
+    context,
+  } = options;
   const startTime = Date.now();
 
   // Check if tool is allowed
@@ -111,27 +123,33 @@ export async function executeToolCall(
     };
 
     // Create span for rejected tool call if we have an attempt ID
-    let spanId: string | undefined;
-    if (createSpans && attemptId) {
-      const span = createSpan({
-        attemptId,
-        parentSpanId,
-        sequence: options.startSequence ?? 0,
-        type: 'tool_call',
-        input: JSON.stringify({ name: toolCall.name, arguments: toolCall.arguments }),
-        output: JSON.stringify(result),
-        toolName: toolCall.name,
-        toolArgs: toolCall.arguments,
-        toolError: result.error,
-        durationMs: Date.now() - startTime,
-      });
-      spanId = span.id;
+    let span: ExecutionSpan | undefined;
+    if (attemptId) {
+      span = createSpan(
+        {
+          attemptId,
+          parentSpanId,
+          sequence: options.startSequence ?? 0,
+          type: "tool_call",
+          input: JSON.stringify({
+            name: toolCall.name,
+            arguments: toolCall.arguments,
+          }),
+          output: JSON.stringify(result),
+          toolName: toolCall.name,
+          toolArgs: toolCall.arguments,
+          toolError: result.error,
+          durationMs: Date.now() - startTime,
+        },
+        createSpans
+      );
     }
 
     return {
       toolCall,
       result,
-      spanId,
+      spanId: span?.id,
+      span,
       allowed: false,
     };
   }
@@ -147,27 +165,33 @@ export async function executeToolCall(
       },
     };
 
-    let spanId: string | undefined;
-    if (createSpans && attemptId) {
-      const span = createSpan({
-        attemptId,
-        parentSpanId,
-        sequence: options.startSequence ?? 0,
-        type: 'tool_call',
-        input: JSON.stringify({ name: toolCall.name, arguments: toolCall.arguments }),
-        output: JSON.stringify(result),
-        toolName: toolCall.name,
-        toolArgs: toolCall.arguments,
-        toolError: result.error,
-        durationMs: Date.now() - startTime,
-      });
-      spanId = span.id;
+    let span: ExecutionSpan | undefined;
+    if (attemptId) {
+      span = createSpan(
+        {
+          attemptId,
+          parentSpanId,
+          sequence: options.startSequence ?? 0,
+          type: "tool_call",
+          input: JSON.stringify({
+            name: toolCall.name,
+            arguments: toolCall.arguments,
+          }),
+          output: JSON.stringify(result),
+          toolName: toolCall.name,
+          toolArgs: toolCall.arguments,
+          toolError: result.error,
+          durationMs: Date.now() - startTime,
+        },
+        createSpans
+      );
     }
 
     return {
       toolCall,
       result,
-      spanId,
+      spanId: span?.id,
+      span,
       allowed: true,
     };
   }
@@ -183,28 +207,34 @@ export async function executeToolCall(
   });
 
   // Create execution span
-  let spanId: string | undefined;
-  if (createSpans && attemptId) {
-    const span = createSpan({
-      attemptId,
-      parentSpanId,
-      sequence: options.startSequence ?? 0,
-      type: 'tool_call',
-      input: JSON.stringify({ name: toolCall.name, arguments: toolCall.arguments }),
-      output: JSON.stringify(result.output),
-      toolName: toolCall.name,
-      toolArgs: toolCall.arguments,
-      toolResult: result.output,
-      toolError: result.error,
-      durationMs: result.metadata?.executionTimeMs ?? (Date.now() - startTime),
-    });
-    spanId = span.id;
+  let span: ExecutionSpan | undefined;
+  if (attemptId) {
+    span = createSpan(
+      {
+        attemptId,
+        parentSpanId,
+        sequence: options.startSequence ?? 0,
+        type: "tool_call",
+        input: JSON.stringify({
+          name: toolCall.name,
+          arguments: toolCall.arguments,
+        }),
+        output: JSON.stringify(result.output),
+        toolName: toolCall.name,
+        toolArgs: toolCall.arguments,
+        toolResult: result.output,
+        toolError: result.error,
+        durationMs: result.metadata?.executionTimeMs ?? Date.now() - startTime,
+      },
+      createSpans
+    );
   }
 
   return {
     toolCall,
     result,
-    spanId,
+    spanId: span?.id,
+    span,
     allowed: true,
   };
 }
@@ -256,13 +286,11 @@ export async function executeToolCallsParallel(
  * Convert LLM tool use response to ToolCall array
  * Handles different LLM response formats
  */
-export function parseToolCalls(
-  response: unknown
-): ToolCall[] {
+export function parseToolCalls(response: unknown): ToolCall[] {
   // Handle Claude/Anthropic format
   if (isClaudeToolUseResponse(response)) {
     return response.content
-      .filter((block): block is ClaudeToolUseBlock => block.type === 'tool_use')
+      .filter((block): block is ClaudeToolUseBlock => block.type === "tool_use")
       .map((block) => ({
         id: block.id,
         name: block.name,
@@ -275,9 +303,10 @@ export function parseToolCalls(
     return response.tool_calls.map((tc) => ({
       id: tc.id,
       name: tc.function.name,
-      arguments: typeof tc.function.arguments === 'string'
-        ? JSON.parse(tc.function.arguments)
-        : tc.function.arguments,
+      arguments:
+        typeof tc.function.arguments === "string"
+          ? JSON.parse(tc.function.arguments)
+          : tc.function.arguments,
     }));
   }
 
@@ -296,7 +325,7 @@ export function parseToolCalls(
 // Type guards for different LLM response formats
 
 interface ClaudeToolUseBlock {
-  type: 'tool_use';
+  type: "tool_use";
   id: string;
   name: string;
   input: Record<string, unknown>;
@@ -306,18 +335,20 @@ interface ClaudeToolUseResponse {
   content: Array<{ type: string } & Partial<ClaudeToolUseBlock>>;
 }
 
-function isClaudeToolUseResponse(response: unknown): response is ClaudeToolUseResponse {
+function isClaudeToolUseResponse(
+  response: unknown
+): response is ClaudeToolUseResponse {
   return (
-    typeof response === 'object' &&
+    typeof response === "object" &&
     response !== null &&
-    'content' in response &&
+    "content" in response &&
     Array.isArray((response as ClaudeToolUseResponse).content)
   );
 }
 
 interface OpenAIToolCall {
   id: string;
-  type: 'function';
+  type: "function";
   function: {
     name: string;
     arguments: string | Record<string, unknown>;
@@ -328,11 +359,13 @@ interface OpenAIToolCallResponse {
   tool_calls: OpenAIToolCall[];
 }
 
-function isOpenAIToolCallResponse(response: unknown): response is OpenAIToolCallResponse {
+function isOpenAIToolCallResponse(
+  response: unknown
+): response is OpenAIToolCallResponse {
   return (
-    typeof response === 'object' &&
+    typeof response === "object" &&
     response !== null &&
-    'tool_calls' in response &&
+    "tool_calls" in response &&
     Array.isArray((response as OpenAIToolCallResponse).tool_calls)
   );
 }
@@ -342,11 +375,11 @@ function isOpenAIToolCallResponse(response: unknown): response is OpenAIToolCall
  */
 export function formatToolResultsForLLM(
   results: ToolCallResult[],
-  format: 'claude' | 'openai' = 'claude'
+  format: "claude" | "openai" = "claude"
 ): unknown {
-  if (format === 'claude') {
+  if (format === "claude") {
     return results.map((r) => ({
-      type: 'tool_result',
+      type: "tool_result",
       tool_use_id: r.toolCall.id,
       content: r.result.success
         ? JSON.stringify(r.result.output)
@@ -357,7 +390,7 @@ export function formatToolResultsForLLM(
 
   // OpenAI format
   return results.map((r) => ({
-    role: 'tool',
+    role: "tool",
     tool_call_id: r.toolCall.id,
     content: r.result.success
       ? JSON.stringify(r.result.output)

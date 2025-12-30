@@ -9,18 +9,18 @@
  * 5. Record evolution for learning
  */
 
-import type { AgentDefinition } from '../types/agent';
+import type { AgentDefinition } from "../types/agent";
 import type {
   ScoreAnalysis,
   EvolutionPlan,
   EvolutionRecord,
   ExecutionSpan,
   CreateEvolutionRecordInput,
-} from '../types/evolution';
-import { analyzeReward, summarizeAnalysis } from './reward-analyzer';
-import { assignCredit, summarizeCreditAssignment } from './credit-assignment';
-import { createEvolutionPlan, summarizePlan } from './evolution-planner';
-import { evolveAgent as applyEvolution } from './agent-evolver';
+} from "../types/evolution";
+import { analyzeReward, summarizeAnalysis } from "./reward-analyzer";
+import { assignCredit, summarizeCreditAssignment } from "./credit-assignment";
+import { createEvolutionPlan, summarizePlan } from "./evolution-planner";
+import { evolveAgent as applyEvolution } from "./agent-evolver";
 import {
   createEvolutionRecord,
   getEvolutionRecordsByLineage,
@@ -29,12 +29,12 @@ import {
   createLearningInsight,
   findInsightByPattern,
   updateLearningInsight,
-} from '../db/queries';
-import { generateId } from '../utils/id';
+} from "../db/queries";
+import { generateId } from "../utils/id";
 import {
   recordAgentEvolved,
   recordEvolutionOutcome,
-} from './training-signal/recorder';
+} from "./training-signal/recorder";
 
 /**
  * Input for the evolution pipeline
@@ -44,8 +44,8 @@ export interface EvolutionPipelineInput {
   need: string;
   score: number;
   comment?: string;
-  stickyDirective?: string;
-  oneshotDirective?: string;
+  stickyDirective?: string[];
+  oneshotDirective?: string[];
   previousScore?: number;
   rolloutId?: string;
   attemptId?: string;
@@ -84,33 +84,47 @@ export async function runEvolutionPipeline(
     sessionId,
   } = input;
 
-  console.log(`[Evolution Pipeline] Starting for agent ${agent.name} v${agent.version}`);
-  console.log(`[Evolution Pipeline] Score: ${score}/10, Previous: ${previousScore ?? 'N/A'}`);
+  console.log(
+    `[Evolution Pipeline] Starting for agent ${agent.name} v${agent.version}`
+  );
+  console.log(
+    `[Evolution Pipeline] Score: ${score}/10, Previous: ${previousScore ?? "N/A"}`
+  );
 
   // Step 1: Analyze Reward
-  console.log('[Evolution Pipeline] Step 1: Analyzing reward...');
+  console.log("[Evolution Pipeline] Step 1: Analyzing reward...");
   const analysis = await analyzeReward(score, comment, previousScore ?? null);
   console.log(`[Evolution Pipeline] ${summarizeAnalysis(analysis)}`);
 
   // Step 2: Assign Credit
-  console.log('[Evolution Pipeline] Step 2: Assigning credit...');
+  console.log("[Evolution Pipeline] Step 2: Assigning credit...");
   const { mode, credits } = await assignCredit(agent, analysis, spans);
-  console.log(`[Evolution Pipeline] Credit mode: ${mode}, ${summarizeCreditAssignment(credits)}`);
+  console.log(
+    `[Evolution Pipeline] Credit mode: ${mode}, ${summarizeCreditAssignment(credits)}`
+  );
 
   // Step 3: Get History for Context
-  console.log('[Evolution Pipeline] Step 3: Getting evolution history...');
+  console.log("[Evolution Pipeline] Step 3: Getting evolution history...");
   const agentLineageId = agent.lineageId || `lineage-${agent.id}`;
   const pastRecords = getEvolutionRecordsByLineage(agentLineageId);
   const insights = getLearningInsightsBySession(sessionId);
-  console.log(`[Evolution Pipeline] Found ${pastRecords.length} past evolutions, ${insights.length} insights`);
+  console.log(
+    `[Evolution Pipeline] Found ${pastRecords.length} past evolutions, ${insights.length} insights`
+  );
 
   // Step 4: Plan Evolution
-  console.log('[Evolution Pipeline] Step 4: Planning evolution...');
-  const plan = await createEvolutionPlan(agent, analysis, credits, pastRecords, insights);
+  console.log("[Evolution Pipeline] Step 4: Planning evolution...");
+  const plan = await createEvolutionPlan(
+    agent,
+    analysis,
+    credits,
+    pastRecords,
+    insights
+  );
   console.log(`[Evolution Pipeline] ${summarizePlan(plan)}`);
 
   // Step 5: Apply Evolution
-  console.log('[Evolution Pipeline] Step 5: Applying evolution...');
+  console.log("[Evolution Pipeline] Step 5: Applying evolution...");
   const evolvedAgent = await applyEvolution(
     agent,
     need,
@@ -125,7 +139,7 @@ export async function runEvolutionPipeline(
   console.log(`[Evolution Pipeline] Created agent v${finalAgent.version}`);
 
   // Step 6: Record Evolution
-  console.log('[Evolution Pipeline] Step 6: Recording evolution...');
+  console.log("[Evolution Pipeline] Step 6: Recording evolution...");
   const lineageId = agent.lineageId || `lineage-${agent.id}`;
   const recordInput: CreateEvolutionRecordInput = {
     lineageId,
@@ -152,7 +166,10 @@ export async function runEvolutionPipeline(
   try {
     recordAgentEvolved(agent, finalAgent, plan.changes, plan.hypothesis);
   } catch (recordError) {
-    console.warn('[Evolution Pipeline] Failed to record agent evolved:', recordError);
+    console.warn(
+      "[Evolution Pipeline] Failed to record agent evolved:",
+      recordError
+    );
   }
 
   // Step 7: Update previous evolution outcome if exists
@@ -167,13 +184,22 @@ export async function runEvolutionPipeline(
         scoreDelta,
         hypothesisValidated,
       });
-      console.log(`[Evolution Pipeline] Updated outcome for previous evolution ${previousRecord.id}`);
+      console.log(
+        `[Evolution Pipeline] Updated outcome for previous evolution ${previousRecord.id}`
+      );
 
       // Record training signal for evolution outcome
       try {
-        recordEvolutionOutcome(previousRecord.id, scoreDelta, hypothesisValidated);
+        recordEvolutionOutcome(
+          previousRecord.id,
+          scoreDelta,
+          hypothesisValidated
+        );
       } catch (recordError) {
-        console.warn('[Evolution Pipeline] Failed to record evolution outcome:', recordError);
+        console.warn(
+          "[Evolution Pipeline] Failed to record evolution outcome:",
+          recordError
+        );
       }
 
       // Extract learning from the outcome
@@ -196,21 +222,31 @@ export async function runEvolutionPipeline(
 /**
  * Applies plan changes to the evolved agent
  */
-function applyPlanChanges(agent: AgentDefinition, plan: EvolutionPlan): AgentDefinition {
+function applyPlanChanges(
+  agent: AgentDefinition,
+  plan: EvolutionPlan
+): AgentDefinition {
   let modified = { ...agent };
 
   for (const change of plan.changes) {
     switch (change.component) {
-      case 'systemPrompt':
-        if (change.changeType === 'add' && change.after) {
+      case "systemPrompt":
+        if (change.changeType === "add" && change.after) {
           // Add new instruction if not already present
           if (!modified.systemPrompt.includes(change.after)) {
             modified.systemPrompt = `${modified.systemPrompt}\n\n${change.after}`;
           }
-        } else if (change.changeType === 'remove' && change.before) {
+        } else if (change.changeType === "remove" && change.before) {
           // Remove problematic segment
-          modified.systemPrompt = modified.systemPrompt.replace(change.before, '');
-        } else if (change.changeType === 'modify' && change.before && change.after) {
+          modified.systemPrompt = modified.systemPrompt.replace(
+            change.before,
+            ""
+          );
+        } else if (
+          change.changeType === "modify" &&
+          change.before &&
+          change.after
+        ) {
           // Replace segment
           modified.systemPrompt = modified.systemPrompt.replace(
             change.before,
@@ -219,8 +255,8 @@ function applyPlanChanges(agent: AgentDefinition, plan: EvolutionPlan): AgentDef
         }
         break;
 
-      case 'parameters':
-        if (change.target === 'temperature' && change.after) {
+      case "parameters":
+        if (change.target === "temperature" && change.after) {
           modified = {
             ...modified,
             parameters: {
@@ -228,7 +264,7 @@ function applyPlanChanges(agent: AgentDefinition, plan: EvolutionPlan): AgentDef
               temperature: parseFloat(change.after),
             },
           };
-        } else if (change.target === 'maxTokens' && change.after) {
+        } else if (change.target === "maxTokens" && change.after) {
           modified = {
             ...modified,
             parameters: {
@@ -240,8 +276,8 @@ function applyPlanChanges(agent: AgentDefinition, plan: EvolutionPlan): AgentDef
         break;
 
       // Tools and flow changes are handled separately
-      case 'tools':
-      case 'flow':
+      case "tools":
+      case "flow":
         // These require more complex handling - for now, log and skip
         console.log(
           `[Evolution Pipeline] ${change.component} change planned but not applied: ${change.reason}`
@@ -252,7 +288,7 @@ function applyPlanChanges(agent: AgentDefinition, plan: EvolutionPlan): AgentDef
 
   // Clean up system prompt (remove multiple newlines)
   modified.systemPrompt = modified.systemPrompt
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 
   return modified;
@@ -293,16 +329,20 @@ async function extractLearning(
         failureCount: newFailureCount,
         avgScoreImpact: newAvgImpact,
         confidence: newConfidence,
-        contexts: [...insight.contexts, record.trigger.comment || 'no comment'].slice(
-          -10
-        ), // Keep last 10 contexts
+        contexts: [
+          ...insight.contexts,
+          record.trigger.comment || "no comment",
+        ].slice(-10), // Keep last 10 contexts
       });
     } else {
       // Create new insight
       createLearningInsight({
         sessionId,
         pattern,
-        patternType: `${change.component}_change` as 'prompt_change' | 'tool_change' | 'param_change',
+        patternType: `${change.component}_change` as
+          | "prompt_change"
+          | "tool_change"
+          | "param_change",
         contexts: record.trigger.comment ? [record.trigger.comment] : [],
       });
 
@@ -334,17 +374,19 @@ function generatePipelineSummary(
   // Score and trend
   parts.push(`Score: ${analysis.score}/10`);
   if (analysis.deltaFromPrevious !== 0) {
-    const direction = analysis.deltaFromPrevious > 0 ? 'up' : 'down';
-    parts.push(`(${direction} ${Math.abs(analysis.deltaFromPrevious)} from previous)`);
+    const direction = analysis.deltaFromPrevious > 0 ? "up" : "down";
+    parts.push(
+      `(${direction} ${Math.abs(analysis.deltaFromPrevious)} from previous)`
+    );
   }
 
   // Key aspects
   if (analysis.aspects.length > 0) {
     const issues = analysis.aspects
-      .filter((a) => a.sentiment === 'negative')
+      .filter((a) => a.sentiment === "negative")
       .map((a) => a.aspect);
     if (issues.length > 0) {
-      parts.push(`Issues: ${issues.join(', ')}`);
+      parts.push(`Issues: ${issues.join(", ")}`);
     }
   }
 
@@ -358,7 +400,7 @@ function generatePipelineSummary(
       parts.push(`  ...and ${plan.changes.length - 3} more`);
     }
   } else {
-    parts.push('No significant changes needed');
+    parts.push("No significant changes needed");
   }
 
   // Version update
@@ -369,7 +411,7 @@ function generatePipelineSummary(
     parts.push(`Hypothesis: ${plan.hypothesis}`);
   }
 
-  return parts.join('\n');
+  return parts.join("\n");
 }
 
 /**
@@ -381,14 +423,7 @@ export async function quickEvolve(
   score: number,
   feedback?: string
 ): Promise<AgentDefinition> {
-  return applyEvolution(
-    agent,
-    need,
-    score,
-    feedback ?? null,
-    null,
-    null
-  );
+  return applyEvolution(agent, need, score, feedback ?? null, null, null);
 }
 
 /**
@@ -438,7 +473,9 @@ export function getEvolutionStats(lineageId: string): {
   return {
     totalEvolutions: records.length,
     avgScoreImprovement:
-      recordsWithOutcome.length > 0 ? totalDelta / recordsWithOutcome.length : 0,
+      recordsWithOutcome.length > 0
+        ? totalDelta / recordsWithOutcome.length
+        : 0,
     successRate:
       recordsWithOutcome.length > 0
         ? improvements.length / recordsWithOutcome.length

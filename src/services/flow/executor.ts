@@ -6,17 +6,17 @@
  * observability through execution spans.
  */
 
-import type { AgentDefinition, AgentFlowStep } from '../../types/agent';
-import type { ExecutionSpan } from '../../types/evolution';
-import { generateWithSystem } from '../../api/llm';
-import { createSpan, updateAttempt } from '../../db/queries';
+import type { AgentDefinition, AgentFlowStep } from "../../types/agent";
+import type { ExecutionSpan } from "../../types/evolution";
+import { generateWithSystem } from "../../api/llm";
+import { createSpan, updateAttempt } from "../../db/queries";
 import {
   stepHandlers,
   buildStepMap,
   findStartStep,
   createFlowContext,
   type StepHandler,
-} from './handlers';
+} from "./handlers";
 
 /**
  * Result of executing a complete flow
@@ -88,17 +88,20 @@ export async function executeFlow(
   if (!startStep) {
     return {
       success: false,
-      output: '',
+      output: "",
       spans: [],
-      error: 'Agent flow missing start step - use direct execution mode instead',
+      error:
+        "Agent flow missing start step - use direct execution mode instead",
       durationMs: Date.now() - startTime,
       stepsExecuted: 0,
     };
   }
 
-  const hasOutputStep = agent.flow.some((s) => s.type === 'output');
+  const hasOutputStep = agent.flow.some((s) => s.type === "output");
   if (!hasOutputStep) {
-    console.warn('[Flow] Agent flow missing output step - flow may not return a result');
+    console.warn(
+      "[Flow] Agent flow missing output step - flow may not return a result"
+    );
   }
 
   // Build step lookup map
@@ -109,6 +112,7 @@ export async function executeFlow(
     sessionContext: options.sessionContext,
     parentSpanId: options.parentSpanId,
     sessionId: options.sessionId,
+    createSpans: options.createSpans,
   });
 
   // Execute flow
@@ -116,7 +120,7 @@ export async function executeFlow(
   let stepsExecuted = 0;
   // Don't initialize lastOutput to input - that could leak internal test prompts
   // The start step will properly set it via context.variables if needed
-  let lastOutput: unknown = '';
+  let lastOutput: unknown = "";
   let lastError: string | undefined;
 
   while (currentStep !== null && stepsExecuted < maxSteps) {
@@ -150,7 +154,7 @@ export async function executeFlow(
         // If nextStepId is null and we have an error, stop execution
         // Clear lastOutput to avoid leaking internal input as output
         if (result.nextStepId === null) {
-          lastOutput = '';
+          lastOutput = "";
           break;
         }
       }
@@ -167,13 +171,14 @@ export async function executeFlow(
         }
       }
     } catch (error) {
-      lastError = error instanceof Error ? error.message : 'Unknown execution error';
+      lastError =
+        error instanceof Error ? error.message : "Unknown execution error";
 
       // Try to find error handler
       if (stepToExecute.connections.onError) {
         const errorStep = stepMap.get(stepToExecute.connections.onError);
         if (errorStep) {
-          context.variables['error'] = lastError;
+          context.variables["error"] = lastError;
           currentStep = errorStep;
           continue;
         }
@@ -181,7 +186,7 @@ export async function executeFlow(
 
       // No error handler, stop execution
       // Clear lastOutput to avoid leaking internal input as output
-      lastOutput = '';
+      lastOutput = "";
       break;
     }
   }
@@ -203,7 +208,7 @@ export async function executeFlow(
       updateAttempt(attemptId, {
         output: finalOutput,
         // If there was any error, the attempt failed
-        status: lastError ? 'failed' : 'succeeded',
+        status: lastError ? "failed" : "succeeded",
         error: lastError,
         durationMs,
       });
@@ -248,16 +253,12 @@ export async function executeSinglePrompt(
     }
 
     // Execute LLM call
-    const output = await generateWithSystem(
-      agent.systemPrompt,
-      userMessage,
-      {
-        temperature: agent.parameters?.temperature ?? 0.7,
-        maxTokens: agent.parameters?.maxTokens ?? 2048,
-        model: agent.parameters?.model,
-        sessionId: options.sessionId,
-      }
-    );
+    const output = await generateWithSystem(agent.systemPrompt, userMessage, {
+      temperature: agent.parameters?.temperature ?? 0.7,
+      maxTokens: agent.parameters?.maxTokens ?? 2048,
+      model: agent.parameters?.model,
+      sessionId: options.sessionId,
+    });
 
     const durationMs = Date.now() - startTime;
 
@@ -268,7 +269,7 @@ export async function executeSinglePrompt(
         attemptId,
         parentSpanId: options.parentSpanId,
         sequence: 0,
-        type: 'llm_call',
+        type: "llm_call",
         input: userMessage,
         output: output,
         modelId: agent.parameters?.model,
@@ -281,7 +282,7 @@ export async function executeSinglePrompt(
     try {
       updateAttempt(attemptId, {
         output,
-        status: 'succeeded',
+        status: "succeeded",
         durationMs,
       });
     } catch {
@@ -297,7 +298,8 @@ export async function executeSinglePrompt(
     };
   } catch (error) {
     const durationMs = Date.now() - startTime;
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
 
     // Create span for failed call
     const spans: ExecutionSpan[] = [];
@@ -306,9 +308,9 @@ export async function executeSinglePrompt(
         attemptId,
         parentSpanId: options.parentSpanId,
         sequence: 0,
-        type: 'llm_call',
+        type: "llm_call",
         input: input,
-        output: '',
+        output: "",
         modelId: agent.parameters?.model,
         durationMs,
       });
@@ -318,8 +320,8 @@ export async function executeSinglePrompt(
     // Update attempt
     try {
       updateAttempt(attemptId, {
-        output: '',
-        status: 'failed',
+        output: "",
+        status: "failed",
         error: errorMessage,
         durationMs,
       });
@@ -329,7 +331,7 @@ export async function executeSinglePrompt(
 
     return {
       success: false,
-      output: '',
+      output: "",
       spans,
       error: errorMessage,
       durationMs,
@@ -353,39 +355,51 @@ export function validateFlow(steps: AgentFlowStep[]): {
   // Check for start step
   const startStep = findStartStep(steps);
   if (!startStep) {
-    errors.push('Flow must have a start step');
+    errors.push("Flow must have a start step");
   }
 
   // Check for output step
-  const hasOutput = steps.some((s) => s.type === 'output');
+  const hasOutput = steps.some((s) => s.type === "output");
   if (!hasOutput) {
-    warnings.push('Flow has no output step - may not return a result');
+    warnings.push("Flow has no output step - may not return a result");
   }
 
   // Check all connections are valid
   for (const step of steps) {
     const connections = step.connections;
     if (connections.next && !stepMap.has(connections.next)) {
-      errors.push(`Step "${step.name}" has invalid next connection: ${connections.next}`);
+      errors.push(
+        `Step "${step.name}" has invalid next connection: ${connections.next}`
+      );
     }
     if (connections.onTrue && !stepMap.has(connections.onTrue)) {
-      errors.push(`Step "${step.name}" has invalid onTrue connection: ${connections.onTrue}`);
+      errors.push(
+        `Step "${step.name}" has invalid onTrue connection: ${connections.onTrue}`
+      );
     }
     if (connections.onFalse && !stepMap.has(connections.onFalse)) {
-      errors.push(`Step "${step.name}" has invalid onFalse connection: ${connections.onFalse}`);
+      errors.push(
+        `Step "${step.name}" has invalid onFalse connection: ${connections.onFalse}`
+      );
     }
     if (connections.onError && !stepMap.has(connections.onError)) {
-      errors.push(`Step "${step.name}" has invalid onError connection: ${connections.onError}`);
+      errors.push(
+        `Step "${step.name}" has invalid onError connection: ${connections.onError}`
+      );
     }
 
     // Type-specific validation
-    if (step.type === 'condition' && !connections.onTrue && !connections.onFalse) {
+    if (
+      step.type === "condition" &&
+      !connections.onTrue &&
+      !connections.onFalse
+    ) {
       warnings.push(`Condition step "${step.name}" has no branch connections`);
     }
-    if (step.type === 'loop' && !connections.onTrue) {
+    if (step.type === "loop" && !connections.onTrue) {
       warnings.push(`Loop step "${step.name}" has no body connection (onTrue)`);
     }
-    if (step.type === 'tool' && !step.config.toolName) {
+    if (step.type === "tool" && !step.config.toolName) {
       errors.push(`Tool step "${step.name}" has no toolName configured`);
     }
   }
@@ -396,7 +410,7 @@ export function validateFlow(steps: AgentFlowStep[]): {
     collectReachableSteps(startStep, stepMap, reachable);
   }
   for (const step of steps) {
-    if (!reachable.has(step.id) && step.type !== 'start') {
+    if (!reachable.has(step.id) && step.type !== "start") {
       warnings.push(`Step "${step.name}" is unreachable`);
     }
   }
@@ -442,13 +456,13 @@ function collectReachableSteps(
  * Format an output value to a string
  */
 function formatOutput(value: unknown): string {
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return value;
   }
   if (value === null || value === undefined) {
-    return '';
+    return "";
   }
-  if (typeof value === 'object') {
+  if (typeof value === "object") {
     try {
       return JSON.stringify(value, null, 2);
     } catch {
@@ -493,11 +507,11 @@ export async function executeFlowWithRetry(
       lastError = result.error;
 
       // Don't retry on certain error types
-      if (result.error?.includes('maximum steps limit')) {
+      if (result.error?.includes("maximum steps limit")) {
         break;
       }
     } catch (error) {
-      lastError = error instanceof Error ? error.message : 'Unknown error';
+      lastError = error instanceof Error ? error.message : "Unknown error";
     }
   }
 
@@ -508,9 +522,9 @@ export async function executeFlowWithRetry(
 
   return {
     success: false,
-    output: '',
+    output: "",
     spans: [],
-    error: lastError || 'All retries failed',
+    error: lastError || "All retries failed",
     durationMs: 0,
     stepsExecuted: 0,
   };
@@ -523,31 +537,31 @@ export async function executeFlowWithRetry(
 export function createSimpleFlow(template?: string): AgentFlowStep[] {
   return [
     {
-      id: 'start',
-      type: 'start',
-      name: 'Start',
+      id: "start",
+      type: "start",
+      name: "Start",
       config: {},
       position: { x: 0, y: 0 },
-      connections: { next: 'prompt' },
+      connections: { next: "prompt" },
     },
     {
-      id: 'prompt',
-      type: 'prompt',
-      name: 'Generate Response',
+      id: "prompt",
+      type: "prompt",
+      name: "Generate Response",
       config: {
-        template: template || '{{input}}',
+        template: template || "{{input}}",
         useSystemPrompt: true,
-        outputVariable: 'response',
+        outputVariable: "response",
       },
       position: { x: 0, y: 100 },
-      connections: { next: 'output' },
+      connections: { next: "output" },
     },
     {
-      id: 'output',
-      type: 'output',
-      name: 'Output',
+      id: "output",
+      type: "output",
+      name: "Output",
       config: {
-        variable: 'response',
+        variable: "response",
       },
       position: { x: 0, y: 200 },
       connections: {},
@@ -565,59 +579,62 @@ export function createToolFlow(
 ): AgentFlowStep[] {
   const steps: AgentFlowStep[] = [
     {
-      id: 'start',
-      type: 'start',
-      name: 'Start',
+      id: "start",
+      type: "start",
+      name: "Start",
       config: {},
       position: { x: 0, y: 0 },
-      connections: { next: 'tool' },
+      connections: { next: "tool" },
     },
     {
-      id: 'tool',
-      type: 'tool',
+      id: "tool",
+      type: "tool",
       name: `Execute ${toolName}`,
       config: {
         toolName,
         args: toolArgs,
-        outputVariable: 'toolResult',
+        outputVariable: "toolResult",
       },
       position: { x: 0, y: 100 },
-      connections: { next: processPromptTemplate ? 'process' : 'output', onError: 'error_output' },
+      connections: {
+        next: processPromptTemplate ? "process" : "output",
+        onError: "error_output",
+      },
     },
   ];
 
   if (processPromptTemplate) {
     steps.push({
-      id: 'process',
-      type: 'prompt',
-      name: 'Process Results',
+      id: "process",
+      type: "prompt",
+      name: "Process Results",
       config: {
         template: processPromptTemplate,
         useSystemPrompt: true,
-        outputVariable: 'response',
+        outputVariable: "response",
       },
       position: { x: 0, y: 200 },
-      connections: { next: 'output' },
+      connections: { next: "output" },
     });
   }
 
   steps.push({
-    id: 'output',
-    type: 'output',
-    name: 'Output',
+    id: "output",
+    type: "output",
+    name: "Output",
     config: {
-      variable: processPromptTemplate ? 'response' : 'toolResult',
+      variable: processPromptTemplate ? "response" : "toolResult",
     },
     position: { x: 0, y: processPromptTemplate ? 300 : 200 },
     connections: {},
   });
 
   steps.push({
-    id: 'error_output',
-    type: 'output',
-    name: 'Error Output',
+    id: "error_output",
+    type: "output",
+    name: "Error Output",
     config: {
-      template: 'Error executing tool: {{error}}',
+      template: "Error executing tool: {{error}}",
     },
     position: { x: 200, y: 200 },
     connections: {},

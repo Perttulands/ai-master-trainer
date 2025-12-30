@@ -16,7 +16,7 @@ export function LineageCard({ lineage, onViewAgent, onRun, isRunning }: LineageC
   const { toggleLock, setScore } = useLineageStore();
   const { expandCard, openDirectivesForLineage } = useUIStore();
 
-  const hasDirective = lineage.directiveSticky || lineage.directiveOneshot;
+  const hasDirective = (lineage.directiveSticky?.length ?? 0) > 0 || (lineage.directiveOneshot?.length ?? 0) > 0;
 
   const getPreview = () => {
     const artifact = lineage.currentArtifact;
@@ -32,7 +32,7 @@ export function LineageCard({ lineage, onViewAgent, onRun, isRunning }: LineageC
     }
 
     return {
-      text: artifact.content?.slice(0, 200) || 'Empty response',
+      text: artifact.content || 'Empty response',
       isError: false,
     };
   };
@@ -132,7 +132,7 @@ export function LineageCard({ lineage, onViewAgent, onRun, isRunning }: LineageC
       <CardContent className="flex-1 overflow-hidden">
         <div
           className={cn(
-            'text-sm line-clamp-6 whitespace-pre-wrap',
+            'text-sm whitespace-pre-wrap h-64 overflow-y-auto bg-gray-50 p-3 rounded-lg border border-gray-100',
             previewIsError ? 'text-red-600' : 'text-gray-600'
           )}
         >
@@ -140,10 +140,6 @@ export function LineageCard({ lineage, onViewAgent, onRun, isRunning }: LineageC
             <AlertCircle className="w-4 h-4 inline-block mr-1 -mt-0.5" />
           )}
           {preview}
-          {!previewIsError &&
-            lineage.currentArtifact &&
-            lineage.currentArtifact.content.length > 200 &&
-            '...'}
         </div>
       </CardContent>
 

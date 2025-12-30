@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Sparkles, ChevronDown, ChevronUp, FileText, Plus, Trash2, Wand2 } from 'lucide-react';
+import { ArrowLeft, Sparkles, ChevronDown, ChevronUp, FileText, Plus, Trash2, Wand2, ListChecks } from 'lucide-react';
 import { Button, Input, Textarea, Card, CardContent } from '../components/ui';
 import { Header } from '../components/layout/Header';
 import { StrategyDiscussionModal } from '../components/strategy';
@@ -8,7 +8,7 @@ import { useSessionStore } from '../store/session';
 import { useLineageStore } from '../store/lineages';
 import { useContextStore } from '../store/context';
 import { generateAgentsFromStrategies } from '../agents/agent-generator';
-import { proposeInputPrompt } from '../agents/master-trainer';
+import { proposeInputPrompt, generateRubric } from '../agents/master-trainer';
 import type { CustomStrategy } from '../types/strategy';
 
 interface ContextDocument {
@@ -31,9 +31,11 @@ export function NewSession() {
   const [name, setName] = useState('');
   const [need, setNeed] = useState('');
   const [constraints, setConstraints] = useState('');
+  const [rubric, setRubric] = useState('');
   const [inputPrompt, setInputPrompt] = useState('');
   const [agentCount, setAgentCount] = useState<1 | 2 | 4>(4);
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+  const [isGeneratingRubric, setIsGeneratingRubric] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showStrategyModal, setShowStrategyModal] = useState(false);
@@ -97,6 +99,20 @@ export function NewSession() {
     }
   };
 
+  // Generate rubric using Master Trainer
+  const handleGenerateRubric = async () => {
+    if (!need.trim()) return;
+    setIsGeneratingRubric(true);
+    try {
+      const proposed = await generateRubric(need.trim(), constraints.trim() || undefined);
+      setRubric(proposed);
+    } catch (err) {
+      console.error('Failed to generate rubric:', err);
+    } finally {
+      setIsGeneratingRubric(false);
+    }
+  };
+
   // Open strategy discussion modal when form is submitted
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,11 +128,12 @@ export function NewSession() {
     setError(null);
 
     try {
-      // Create session with input prompt and agent count
+      // Create session with input prompt, rubric, and agent count
       const session = createSession({
         name: name.trim(),
         need: need.trim(),
         constraints: constraints.trim() || undefined,
+        rubric: rubric.trim() || undefined,
         inputPrompt: inputPrompt.trim() || undefined,
         initialAgentCount: agentCount,
       });
@@ -157,7 +174,7 @@ export function NewSession() {
       setError(err instanceof Error ? err.message : 'Failed to create session');
       setIsCreating(false);
     }
-  }, [name, need, constraints, inputPrompt, agentCount, documents, examples, createSession, addDocument, addExample, createInitialLineagesWithAgents, navigate]);
+  }, [name, need, constraints, rubric, inputPrompt, agentCount, documents, examples, createSession, addDocument, addExample, createInitialLineagesWithAgents, navigate]);
 
   const contextCount = documents.length + examples.length;
 
@@ -218,6 +235,36 @@ export function NewSession() {
                 onChange={(e) => setConstraints(e.target.value)}
                 rows={3}
               />
+
+              {/* Rubric Section */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700">
+                    <span className="flex items-center gap-1.5">
+                      <ListChecks className="w-4 h-4 text-gray-500" />
+                      Evaluation Rubric
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleGenerateRubric}
+                    disabled={!need.trim() || isGeneratingRubric}
+                    className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-primary-600 hover:text-primary-700 hover:bg-primary-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Wand2 className={`w-3.5 h-3.5 ${isGeneratingRubric ? 'animate-spin' : ''}`} />
+                    {isGeneratingRubric ? 'Generating...' : 'Generate'}
+                  </button>
+                </div>
+                <Textarea
+                  placeholder="• Criteria for evaluating outputs&#10;• What makes an output good vs bad&#10;• Specific requirements to check"
+                  value={rubric}
+                  onChange={(e) => setRubric(e.target.value)}
+                  rows={4}
+                />
+                <p className="text-xs text-gray-500">
+                  Define criteria for scoring agent outputs. This helps you evaluate consistently and guides agent evolution.
+                </p>
+              </div>
 
               {/* Input Prompt Section */}
               <div className="space-y-2">

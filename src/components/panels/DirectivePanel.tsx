@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Trash2, Zap, Pin } from 'lucide-react';
+import { Trash2, Zap, Pin, Plus } from 'lucide-react';
 import { Button, Textarea, Badge } from '../ui';
 import { cn } from '../../utils/cn';
 import type { LineageWithArtifact } from '../../types';
@@ -16,22 +16,22 @@ export function DirectivePanel({
   selectedLineageId,
   onSelectLineage,
 }: DirectivePanelProps) {
-  const { setDirective, clearDirective } = useLineageStore();
+  const { addDirective, removeDirective } = useLineageStore();
   const [stickyInput, setStickyInput] = useState('');
   const [oneshotInput, setOneshotInput] = useState('');
 
   const selectedLineage = lineages.find((l) => l.id === selectedLineageId);
 
-  const handleSetSticky = () => {
+  const handleAddSticky = () => {
     if (selectedLineageId && stickyInput.trim()) {
-      setDirective(selectedLineageId, 'sticky', stickyInput.trim());
+      addDirective(selectedLineageId, 'sticky', stickyInput.trim());
       setStickyInput('');
     }
   };
 
-  const handleSetOneshot = () => {
+  const handleAddOneshot = () => {
     if (selectedLineageId && oneshotInput.trim()) {
-      setDirective(selectedLineageId, 'oneshot', oneshotInput.trim());
+      addDirective(selectedLineageId, 'oneshot', oneshotInput.trim());
       setOneshotInput('');
     }
   };
@@ -65,7 +65,7 @@ export function DirectivePanel({
               disabled={lineage.isLocked}
             >
               {lineage.label}
-              {(lineage.directiveSticky || lineage.directiveOneshot) && (
+              {((lineage.directiveSticky?.length ?? 0) > 0 || (lineage.directiveOneshot?.length ?? 0) > 0) && (
                 <span className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full" />
               )}
             </button>
@@ -85,89 +85,92 @@ export function DirectivePanel({
           </div>
         ) : (
           <>
-            {/* Current Directives */}
-            {(selectedLineage.directiveSticky || selectedLineage.directiveOneshot) && (
-              <div className="space-y-3">
-                <h4 className="text-sm font-medium text-gray-700">Active Directives</h4>
-
-                {selectedLineage.directiveSticky && (
-                  <div className="bg-blue-50 rounded-lg p-3 relative">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Pin className="w-4 h-4 text-blue-600" />
-                      <Badge variant="primary">Sticky</Badge>
-                      <button
-                        onClick={() => clearDirective(selectedLineage.id, 'sticky')}
-                        className="ml-auto p-1 text-gray-400 hover:text-red-500"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <p className="text-sm text-gray-700">{selectedLineage.directiveSticky}</p>
-                  </div>
-                )}
-
-                {selectedLineage.directiveOneshot && (
-                  <div className="bg-yellow-50 rounded-lg p-3 relative">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Zap className="w-4 h-4 text-yellow-600" />
-                      <Badge variant="warning">One-shot</Badge>
-                      <button
-                        onClick={() => clearDirective(selectedLineage.id, 'oneshot')}
-                        className="ml-auto p-1 text-gray-400 hover:text-red-500"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <p className="text-sm text-gray-700">{selectedLineage.directiveOneshot}</p>
-                    <p className="text-xs text-yellow-600 mt-1">Will be cleared after next regeneration</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Add Sticky Directive */}
-            <div className="space-y-2">
+            {/* Sticky Directives */}
+            <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Pin className="w-4 h-4 text-blue-600" />
-                <h4 className="text-sm font-medium text-gray-700">Sticky Directive</h4>
+                <h4 className="text-sm font-medium text-gray-700">Sticky Directives</h4>
+                <Badge variant="secondary" className="ml-auto">
+                  {selectedLineage.directiveSticky?.length || 0}
+                </Badge>
               </div>
-              <p className="text-xs text-gray-500">Persists across all future cycles</p>
-              <Textarea
-                value={stickyInput}
-                onChange={(e) => setStickyInput(e.target.value)}
-                placeholder="e.g., Use provocative hooks"
-                rows={2}
-              />
-              <Button
-                size="sm"
-                onClick={handleSetSticky}
-                disabled={!stickyInput.trim()}
-              >
-                Set Sticky Directive
-              </Button>
+              
+              {selectedLineage.directiveSticky?.map((directive, index) => (
+                <div key={index} className="bg-blue-50 rounded-lg p-3 relative group">
+                  <p className="text-sm text-gray-700 pr-6">{directive}</p>
+                  <button
+                    onClick={() => removeDirective(selectedLineage.id, 'sticky', index)}
+                    className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+
+              <div className="space-y-2">
+                <Textarea
+                  value={stickyInput}
+                  onChange={(e) => setStickyInput(e.target.value)}
+                  placeholder="Add a persistent directive..."
+                  rows={2}
+                  className="text-sm"
+                />
+                <Button
+                  size="sm"
+                  onClick={handleAddSticky}
+                  disabled={!stickyInput.trim()}
+                  className="w-full"
+                >
+                  <Plus className="w-3 h-3 mr-1" /> Add Sticky Directive
+                </Button>
+              </div>
             </div>
 
-            {/* Add One-shot Directive */}
-            <div className="space-y-2">
+            <div className="h-px bg-gray-100 my-4" />
+
+            {/* One-shot Directives */}
+            <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-yellow-600" />
-                <h4 className="text-sm font-medium text-gray-700">One-shot Directive</h4>
+                <h4 className="text-sm font-medium text-gray-700">One-shot Directives</h4>
+                <Badge variant="secondary" className="ml-auto">
+                  {selectedLineage.directiveOneshot?.length || 0}
+                </Badge>
               </div>
-              <p className="text-xs text-gray-500">Applies only to next regeneration</p>
-              <Textarea
-                value={oneshotInput}
-                onChange={(e) => setOneshotInput(e.target.value)}
-                placeholder="e.g., Try a completely different approach"
-                rows={2}
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={handleSetOneshot}
-                disabled={!oneshotInput.trim()}
-              >
-                Set One-shot Directive
-              </Button>
+
+              {selectedLineage.directiveOneshot?.map((directive, index) => (
+                <div key={index} className="bg-yellow-50 rounded-lg p-3 relative group">
+                  <p className="text-sm text-gray-700 pr-6">{directive}</p>
+                  <button
+                    onClick={() => removeDirective(selectedLineage.id, 'oneshot', index)}
+                    className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+
+              <div className="space-y-2">
+                <Textarea
+                  value={oneshotInput}
+                  onChange={(e) => setOneshotInput(e.target.value)}
+                  placeholder="Add a one-time directive..."
+                  rows={2}
+                  className="text-sm"
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={handleAddOneshot}
+                  disabled={!oneshotInput.trim()}
+                  className="w-full"
+                >
+                  <Plus className="w-3 h-3 mr-1" /> Add One-shot Directive
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500 text-center">
+                One-shot directives are cleared after the next regeneration
+              </p>
             </div>
           </>
         )}

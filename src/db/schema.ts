@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 10;
 
 export const CREATE_TABLES_SQL = `
 -- Sessions
@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   name TEXT NOT NULL,
   need TEXT NOT NULL,
   constraints TEXT,
+  rubric TEXT,
   input_prompt TEXT,
   mode TEXT NOT NULL DEFAULT 'training',
   promoted_from TEXT,
@@ -618,6 +619,22 @@ DROP INDEX IF EXISTS idx_quickstart_feedback_artifact;
     sql: `
 -- Add initial_agent_count to sessions for dynamic agent counts
 ALTER TABLE sessions ADD COLUMN initial_agent_count INTEGER NOT NULL DEFAULT 4;
+`,
+  },
+  {
+    fromVersion: 8,
+    toVersion: 9,
+    sql: `
+-- Add trainer_messages to sessions for chat persistence
+ALTER TABLE sessions ADD COLUMN trainer_messages TEXT;
+`,
+  },
+  {
+    fromVersion: 9,
+    toVersion: 10,
+    sql: `
+-- Add rubric to sessions for evaluation criteria
+ALTER TABLE sessions ADD COLUMN rubric TEXT;
 `,
   },
 ];

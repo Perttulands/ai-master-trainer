@@ -10,12 +10,12 @@
  * - output: Terminal step, finalize output
  */
 
-import type { AgentDefinition, AgentFlowStep } from '../../types/agent';
-import type { ExecutionSpan } from '../../types/evolution';
-import { executeToolCall, type ToolCall } from '../tools/executor';
-import { generateWithSystem, generateText } from '../../api/llm';
-import { createSpan } from '../../db/queries';
-import { safeEvaluateCondition } from '../../utils/safeExpressionEvaluator';
+import type { AgentDefinition, AgentFlowStep } from "../../types/agent";
+import type { ExecutionSpan } from "../../types/evolution";
+import { executeToolCall, type ToolCall } from "../tools/executor";
+import { generateWithSystem, generateText } from "../../api/llm";
+import { createSpan } from "../../db/queries";
+import { safeEvaluateCondition } from "../../utils/safeExpressionEvaluator";
 
 /**
  * Context maintained during flow execution
@@ -41,6 +41,8 @@ export interface FlowContext {
   spans: ExecutionSpan[];
   /** Loop state tracking */
   loopState: Map<string, LoopState>;
+  /** Whether to persist spans to the database */
+  createSpans: boolean;
 }
 
 /**
@@ -84,7 +86,7 @@ export type StepHandler = (
 /**
  * Registry of step handlers by type
  */
-export const stepHandlers: Record<AgentFlowStep['type'], StepHandler> = {
+export const stepHandlers: Record<AgentFlowStep["type"], StepHandler> = {
   start: handleStartStep,
   prompt: handlePromptStep,
   tool: handleToolStep,
@@ -103,25 +105,30 @@ async function handleStartStep(
   const startTime = Date.now();
 
   // Initialize variables with input
-  context.variables['input'] = context.input;
-  context.variables['sessionContext'] = context.sessionContext || '';
+  context.variables["input"] = context.input;
+  context.variables["sessionContext"] = context.sessionContext || "";
 
   // Handle any initial variable assignments from config
-  const initialVars = step.config.variables as Record<string, unknown> | undefined;
+  const initialVars = step.config.variables as
+    | Record<string, unknown>
+    | undefined;
   if (initialVars) {
     Object.assign(context.variables, initialVars);
   }
 
   // Create span for start step
-  const span = createSpan({
-    attemptId: context.attemptId,
-    parentSpanId: context.parentSpanId,
-    sequence: context.sequence,
-    type: 'reasoning',
-    input: JSON.stringify({ step: 'start', input: context.input }),
-    output: JSON.stringify({ variables: Object.keys(context.variables) }),
-    durationMs: Date.now() - startTime,
-  });
+  const span = createSpan(
+    {
+      attemptId: context.attemptId,
+      parentSpanId: context.parentSpanId,
+      sequence: context.sequence,
+      type: "reasoning",
+      input: JSON.stringify({ step: "start", input: context.input }),
+      output: JSON.stringify({ variables: Object.keys(context.variables) }),
+      durationMs: Date.now() - startTime,
+    },
+    context.createSpans
+  );
   context.spans.push(span);
 
   return {
@@ -148,8 +155,14 @@ async function handlePromptStep(
     const outputVariable = step.config.outputVariable as string | undefined;
 
     // Warn if template doesn't reference input (may ignore user input)
-    if (template && !template.includes('{{input}}') && !template.includes('{{')) {
-      console.warn(`[Flow] Prompt step "${step.name}" has static template that may ignore user input`);
+    if (
+      template &&
+      !template.includes("{{input}}") &&
+      !template.includes("{{")
+    ) {
+      console.warn(
+        `[Flow] Prompt step "${step.name}" has static template that may ignore user input`
+      );
     }
 
     // Build the prompt with interpolation
@@ -158,22 +171,18 @@ async function handlePromptStep(
       prompt = interpolate(template, context.variables);
     } else {
       // Default: use the current input value
-      prompt = String(context.variables['input'] || context.input);
+      prompt = String(context.variables["input"] || context.input);
     }
 
     // Execute LLM call
     let output: string;
     if (useSystemPrompt !== false && context.agent.systemPrompt) {
-      output = await generateWithSystem(
-        context.agent.systemPrompt,
-        prompt,
-        {
-          temperature: context.agent.parameters?.temperature ?? 0.7,
-          maxTokens: context.agent.parameters?.maxTokens ?? 2048,
-          model: context.agent.parameters?.model,
-          sessionId: context.sessionId,
-        }
-      );
+      output = await generateWithSystem(context.agent.systemPrompt, prompt, {
+        temperature: context.agent.parameters?.temperature ?? 0.7,
+        maxTokens: context.agent.parameters?.maxTokens ?? 2048,
+        model: context.agent.parameters?.model,
+        sessionId: context.sessionId,
+      });
     } else {
       output = await generateText(prompt, {
         temperature: context.agent.parameters?.temperature ?? 0.7,
@@ -184,21 +193,24 @@ async function handlePromptStep(
     }
 
     // Store output in variable
-    const varName = outputVariable || 'lastOutput';
+    const varName = outputVariable || "lastOutput";
     context.variables[varName] = output;
-    context.variables['lastOutput'] = output;
+    context.variables["lastOutput"] = output;
 
     // Create span for LLM call
-    const span = createSpan({
-      attemptId: context.attemptId,
-      parentSpanId: context.parentSpanId,
-      sequence: context.sequence,
-      type: 'llm_call',
-      input: prompt,
-      output: output,
-      modelId: context.agent.parameters?.model,
-      durationMs: Date.now() - startTime,
-    });
+    const span = createSpan(
+      {
+        attemptId: context.attemptId,
+        parentSpanId: context.parentSpanId,
+        sequence: context.sequence,
+        type: "llm_call",
+        input: prompt,
+        output: output,
+        modelId: context.agent.parameters?.model,
+        durationMs: Date.now() - startTime,
+      },
+      context.createSpans
+    );
     context.spans.push(span);
 
     return {
@@ -208,23 +220,27 @@ async function handlePromptStep(
       success: true,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
 
     // Create span for failed LLM call
-    const span = createSpan({
-      attemptId: context.attemptId,
-      parentSpanId: context.parentSpanId,
-      sequence: context.sequence,
-      type: 'llm_call',
-      input: JSON.stringify(step.config),
-      output: '',
-      durationMs: Date.now() - startTime,
-    });
+    const span = createSpan(
+      {
+        attemptId: context.attemptId,
+        parentSpanId: context.parentSpanId,
+        sequence: context.sequence,
+        type: "llm_call",
+        input: JSON.stringify(step.config),
+        output: "",
+        durationMs: Date.now() - startTime,
+      },
+      context.createSpans
+    );
     context.spans.push(span);
 
     // Check if there's an error handler
     if (step.connections.onError) {
-      context.variables['error'] = errorMessage;
+      context.variables["error"] = errorMessage;
       return {
         output: null,
         nextStepId: step.connections.onError,
@@ -264,7 +280,7 @@ async function handleToolStep(
     const outputVariable = step.config.outputVariable as string | undefined;
 
     if (!toolName) {
-      throw new Error('Tool step requires toolName in config');
+      throw new Error("Tool step requires toolName in config");
     }
 
     // Support multiple arg formats: args, parameters, or inputMapping
@@ -290,7 +306,7 @@ async function handleToolStep(
     const interpolatedArgs: Record<string, unknown> = {};
     if (toolArgs) {
       for (const [key, value] of Object.entries(toolArgs)) {
-        if (typeof value === 'string') {
+        if (typeof value === "string") {
           interpolatedArgs[key] = interpolate(value, context.variables);
         } else {
           interpolatedArgs[key] = value;
@@ -311,25 +327,25 @@ async function handleToolStep(
       attemptId: context.attemptId,
       parentSpanId: context.parentSpanId,
       startSequence: context.sequence,
-      createSpans: true,
+      createSpans: context.createSpans,
       context: {
         agentId: context.agent.id,
       },
     });
 
     // Add span to context if created
-    if (result.spanId) {
-      // Span was already created by executeToolCall
+    if (result.span) {
+      context.spans.push(result.span);
     }
 
     // Store result in variable
-    const varName = outputVariable || 'lastToolResult';
+    const varName = outputVariable || "lastToolResult";
     context.variables[varName] = result.result.output;
-    context.variables['lastToolResult'] = result.result.output;
-    context.variables['lastToolSuccess'] = result.result.success;
+    context.variables["lastToolResult"] = result.result.output;
+    context.variables["lastToolSuccess"] = result.result.success;
 
     if (!result.result.success) {
-      context.variables['error'] = result.result.error;
+      context.variables["error"] = result.result.error;
 
       // Check if there's an error handler
       if (step.connections.onError) {
@@ -351,25 +367,29 @@ async function handleToolStep(
       error: result.result.error,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
 
     // Create span for failed tool call
-    const span = createSpan({
-      attemptId: context.attemptId,
-      parentSpanId: context.parentSpanId,
-      sequence: context.sequence,
-      type: 'tool_call',
-      input: JSON.stringify(step.config),
-      output: '',
-      toolName: step.config.toolName as string,
-      toolError: errorMessage,
-      durationMs: Date.now() - startTime,
-    });
+    const span = createSpan(
+      {
+        attemptId: context.attemptId,
+        parentSpanId: context.parentSpanId,
+        sequence: context.sequence,
+        type: "tool_call",
+        input: JSON.stringify(step.config),
+        output: "",
+        toolName: step.config.toolName as string,
+        toolError: errorMessage,
+        durationMs: Date.now() - startTime,
+      },
+      context.createSpans
+    );
     context.spans.push(span);
 
     // Check if there's an error handler
     if (step.connections.onError) {
-      context.variables['error'] = errorMessage;
+      context.variables["error"] = errorMessage;
       return {
         output: null,
         nextStepId: step.connections.onError,
@@ -403,26 +423,34 @@ async function handleConditionStep(
     const condition = step.config.condition as string;
 
     if (!condition) {
-      throw new Error('Condition step requires condition in config');
+      throw new Error("Condition step requires condition in config");
     }
 
     // Evaluate the condition
     const result = evaluateCondition(condition, context.variables);
 
     // Create span for condition evaluation
-    const span = createSpan({
-      attemptId: context.attemptId,
-      parentSpanId: context.parentSpanId,
-      sequence: context.sequence,
-      type: 'reasoning',
-      input: JSON.stringify({ condition, variables: Object.keys(context.variables) }),
-      output: JSON.stringify({ result }),
-      durationMs: Date.now() - startTime,
-    });
+    const span = createSpan(
+      {
+        attemptId: context.attemptId,
+        parentSpanId: context.parentSpanId,
+        sequence: context.sequence,
+        type: "reasoning",
+        input: JSON.stringify({
+          condition,
+          variables: Object.keys(context.variables),
+        }),
+        output: JSON.stringify({ result }),
+        durationMs: Date.now() - startTime,
+      },
+      context.createSpans
+    );
     context.spans.push(span);
 
     // Branch based on result
-    const nextStepId = result ? step.connections.onTrue : step.connections.onFalse;
+    const nextStepId = result
+      ? step.connections.onTrue
+      : step.connections.onFalse;
 
     return {
       output: result,
@@ -431,23 +459,27 @@ async function handleConditionStep(
       success: true,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
 
     // Create span for failed condition
-    const span = createSpan({
-      attemptId: context.attemptId,
-      parentSpanId: context.parentSpanId,
-      sequence: context.sequence,
-      type: 'reasoning',
-      input: JSON.stringify(step.config),
-      output: JSON.stringify({ error: errorMessage }),
-      durationMs: Date.now() - startTime,
-    });
+    const span = createSpan(
+      {
+        attemptId: context.attemptId,
+        parentSpanId: context.parentSpanId,
+        sequence: context.sequence,
+        type: "reasoning",
+        input: JSON.stringify(step.config),
+        output: JSON.stringify({ error: errorMessage }),
+        durationMs: Date.now() - startTime,
+      },
+      context.createSpans
+    );
     context.spans.push(span);
 
     // On error, try onFalse path or error handler
     if (step.connections.onError) {
-      context.variables['error'] = errorMessage;
+      context.variables["error"] = errorMessage;
       return {
         output: false,
         nextStepId: step.connections.onError,
@@ -495,7 +527,7 @@ async function handleLoopStep(
       currentIndex: 0,
       maxIterations: items ? items.length : maxIterations,
       items,
-      itemVariable: itemVariable || 'item',
+      itemVariable: itemVariable || "item",
     };
     context.loopState.set(step.id, loopState);
   }
@@ -506,23 +538,30 @@ async function handleLoopStep(
   if (shouldContinue) {
     // Set current item variable if iterating over items
     if (loopState.items && loopState.itemVariable) {
-      context.variables[loopState.itemVariable] = loopState.items[loopState.currentIndex];
+      context.variables[loopState.itemVariable] =
+        loopState.items[loopState.currentIndex];
     }
-    context.variables['loopIndex'] = loopState.currentIndex;
+    context.variables["loopIndex"] = loopState.currentIndex;
 
     // Increment for next iteration
     loopState.currentIndex++;
 
     // Create span for loop iteration
-    const span = createSpan({
-      attemptId: context.attemptId,
-      parentSpanId: context.parentSpanId,
-      sequence: context.sequence,
-      type: 'reasoning',
-      input: JSON.stringify({ step: 'loop', iteration: loopState.currentIndex - 1 }),
-      output: JSON.stringify({ continuing: true }),
-      durationMs: Date.now() - startTime,
-    });
+    const span = createSpan(
+      {
+        attemptId: context.attemptId,
+        parentSpanId: context.parentSpanId,
+        sequence: context.sequence,
+        type: "reasoning",
+        input: JSON.stringify({
+          step: "loop",
+          iteration: loopState.currentIndex - 1,
+        }),
+        output: JSON.stringify({ continuing: true }),
+        durationMs: Date.now() - startTime,
+      },
+      context.createSpans
+    );
     context.spans.push(span);
 
     // Continue to loop body (onTrue)
@@ -537,15 +576,21 @@ async function handleLoopStep(
     context.loopState.delete(step.id);
 
     // Create span for loop completion
-    const span = createSpan({
-      attemptId: context.attemptId,
-      parentSpanId: context.parentSpanId,
-      sequence: context.sequence,
-      type: 'reasoning',
-      input: JSON.stringify({ step: 'loop', totalIterations: loopState.currentIndex }),
-      output: JSON.stringify({ continuing: false, completed: true }),
-      durationMs: Date.now() - startTime,
-    });
+    const span = createSpan(
+      {
+        attemptId: context.attemptId,
+        parentSpanId: context.parentSpanId,
+        sequence: context.sequence,
+        type: "reasoning",
+        input: JSON.stringify({
+          step: "loop",
+          totalIterations: loopState.currentIndex,
+        }),
+        output: JSON.stringify({ continuing: false, completed: true }),
+        durationMs: Date.now() - startTime,
+      },
+      context.createSpans
+    );
     context.spans.push(span);
 
     // Exit loop (onFalse or next)
@@ -582,19 +627,22 @@ async function handleOutputStep(
   } else {
     // Default to lastOutput - do NOT fall back to raw input as it may contain
     // internal test prompts like "Please demonstrate your capabilities..."
-    output = context.variables['lastOutput'] ?? '';
+    output = context.variables["lastOutput"] ?? "";
   }
 
   // Create span for output step
-  const span = createSpan({
-    attemptId: context.attemptId,
-    parentSpanId: context.parentSpanId,
-    sequence: context.sequence,
-    type: 'output',
-    input: JSON.stringify({ template, variable }),
-    output: typeof output === 'string' ? output : JSON.stringify(output),
-    durationMs: Date.now() - startTime,
-  });
+  const span = createSpan(
+    {
+      attemptId: context.attemptId,
+      parentSpanId: context.parentSpanId,
+      sequence: context.sequence,
+      type: "output",
+      input: JSON.stringify({ template, variable }),
+      output: typeof output === "string" ? output : JSON.stringify(output),
+      durationMs: Date.now() - startTime,
+    },
+    context.createSpans
+  );
   context.spans.push(span);
 
   return {
@@ -611,7 +659,10 @@ async function handleOutputStep(
  * Interpolate variables into a template string
  * Supports {{variableName}} and {{variableName.property}} syntax
  */
-export function interpolate(template: string, variables: Record<string, unknown>): string {
+export function interpolate(
+  template: string,
+  variables: Record<string, unknown>
+): string {
   return template.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
     const trimmedPath = path.trim();
     const value = getNestedValue(variables, trimmedPath);
@@ -620,7 +671,7 @@ export function interpolate(template: string, variables: Record<string, unknown>
       return match; // Keep original if not found
     }
 
-    if (typeof value === 'object') {
+    if (typeof value === "object") {
       return JSON.stringify(value);
     }
 
@@ -632,14 +683,14 @@ export function interpolate(template: string, variables: Record<string, unknown>
  * Get a nested value from an object using dot notation
  */
 function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  const parts = path.split('.');
+  const parts = path.split(".");
   let current: unknown = obj;
 
   for (const part of parts) {
     if (current === null || current === undefined) {
       return undefined;
     }
-    if (typeof current === 'object') {
+    if (typeof current === "object") {
       current = (current as Record<string, unknown>)[part];
     } else {
       return undefined;
@@ -693,11 +744,13 @@ export function evaluateCondition(
 
   // Handle "contains" pattern
   if (/\bcontains\b/i.test(condition)) {
-    const containsMatch = condition.match(/(\w+)\s+contains\s+["']([^"']+)["']/i);
+    const containsMatch = condition.match(
+      /(\w+)\s+contains\s+["']([^"']+)["']/i
+    );
     if (containsMatch) {
       const value = getNestedValue(variables, containsMatch[1]);
       const search = containsMatch[2];
-      if (typeof value === 'string') {
+      if (typeof value === "string") {
         return value.includes(search);
       }
       if (Array.isArray(value)) {
@@ -719,13 +772,13 @@ function isEmpty(value: unknown): boolean {
   if (value === undefined || value === null) {
     return true;
   }
-  if (typeof value === 'string') {
-    return value.trim() === '';
+  if (typeof value === "string") {
+    return value.trim() === "";
   }
   if (Array.isArray(value)) {
     return value.length === 0;
   }
-  if (typeof value === 'object') {
+  if (typeof value === "object") {
     return Object.keys(value).length === 0;
   }
   return false;
@@ -737,9 +790,9 @@ function isEmpty(value: unknown): boolean {
 export function getNextStep(
   step: AgentFlowStep,
   stepMap: Map<string, AgentFlowStep>,
-  branch?: 'next' | 'onTrue' | 'onFalse' | 'onError'
+  branch?: "next" | "onTrue" | "onFalse" | "onError"
 ): AgentFlowStep | null {
-  const connectionKey = branch || 'next';
+  const connectionKey = branch || "next";
   const nextStepId = step.connections[connectionKey];
 
   if (!nextStepId) {
@@ -752,7 +805,9 @@ export function getNextStep(
 /**
  * Build a step lookup map from flow steps array
  */
-export function buildStepMap(steps: AgentFlowStep[]): Map<string, AgentFlowStep> {
+export function buildStepMap(
+  steps: AgentFlowStep[]
+): Map<string, AgentFlowStep> {
   const map = new Map<string, AgentFlowStep>();
   for (const step of steps) {
     map.set(step.id, step);
@@ -765,7 +820,7 @@ export function buildStepMap(steps: AgentFlowStep[]): Map<string, AgentFlowStep>
  */
 export function findStartStep(steps: AgentFlowStep[]): AgentFlowStep | null {
   // First, look for a step with type 'start'
-  const startStep = steps.find((s) => s.type === 'start');
+  const startStep = steps.find((s) => s.type === "start");
   if (startStep) {
     return startStep;
   }
@@ -785,6 +840,7 @@ export function createFlowContext(
     sessionContext?: string;
     parentSpanId?: string;
     sessionId?: string;
+    createSpans?: boolean;
   } = {}
 ): FlowContext {
   return {
@@ -798,5 +854,6 @@ export function createFlowContext(
     parentSpanId: options.parentSpanId,
     spans: [],
     loopState: new Map(),
+    createSpans: options.createSpans ?? true,
   };
 }

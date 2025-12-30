@@ -3,10 +3,14 @@ export interface Session {
   name: string;
   need: string;
   constraints: string | null;
+  /** Evaluation rubric for scoring agent outputs */
+  rubric: string | null;
   /** The input prompt to send to agents (the actual task/query they should respond to) */
   inputPrompt: string | null;
   /** Initial number of agents (1, 2, or 4) */
   initialAgentCount: number;
+  /** Persisted chat history with the Master Trainer */
+  trainerMessages?: TrainerMessage[];
   createdAt: number;
   updatedAt: number;
 }
@@ -17,8 +21,8 @@ export interface Lineage {
   label: LineageLabel;
   strategyTag: string | null;
   isLocked: boolean;
-  directiveSticky: string | null;
-  directiveOneshot: string | null;
+  directiveSticky: string[] | null;
+  directiveOneshot: string[] | null;
   createdAt: number;
 }
 
@@ -68,13 +72,13 @@ export interface AuditLogEntry {
 }
 
 /** Lineage labels A-H support up to 8 agents per session */
-export type LineageLabel = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H';
+export type LineageLabel = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H";
 
 // Agent types
-export * from './agent';
+export * from "./agent";
 
 // Context types
-export * from './context';
+export * from "./context";
 
 export interface LineageWithArtifact extends Lineage {
   currentArtifact: Artifact | null;
@@ -84,7 +88,7 @@ export interface LineageWithArtifact extends Lineage {
 
 export interface TrainerMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
   timestamp: number;
   /** Proposed actions for user approval (only on assistant messages) */
@@ -93,15 +97,27 @@ export interface TrainerMessage {
 
 /** Actions the Master Trainer can propose */
 export type TrainerAction =
-  | { kind: 'set_grade'; lineageId: string; agentLabel: string; grade: number }
-  | { kind: 'add_comment'; lineageId: string; agentLabel: string; comment: string }
-  | { kind: 'set_directive'; lineageId: string; agentLabel: string; directive: { type: 'sticky' | 'oneshot'; content: string } }
-  | { kind: 'add_lineage'; count: number };
+  | { kind: "set_grade"; lineageId: string; agentLabel: string; grade: number }
+  | {
+      kind: "add_comment";
+      lineageId: string;
+      agentLabel: string;
+      comment: string;
+    }
+  | {
+      kind: "set_directive";
+      lineageId: string;
+      agentLabel: string;
+      directive: { type: "sticky" | "oneshot"; content: string };
+    }
+  | { kind: "add_lineage"; count: number };
 
 export interface CreateSessionInput {
   name: string;
   need: string;
   constraints?: string;
+  /** Evaluation rubric for scoring agent outputs */
+  rubric?: string;
   /** The input prompt to send to agents (the actual task/query they should respond to) */
   inputPrompt?: string;
   /** Initial number of agents (1, 2, or 4) - defaults to 4 */
@@ -110,6 +126,6 @@ export interface CreateSessionInput {
 
 export interface DirectiveInput {
   lineageId: string;
-  type: 'sticky' | 'oneshot';
+  type: "sticky" | "oneshot";
   content: string;
 }

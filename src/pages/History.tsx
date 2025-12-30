@@ -1,20 +1,89 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Clock, Star, Bug } from 'lucide-react';
+import { ArrowLeft, Clock, Star, Bug, Activity, ChevronDown, ChevronRight } from 'lucide-react';
 import { Card, CardContent, Badge } from '../components/ui';
 import { Header } from '../components/layout/Header';
 import { LLMDebugPanel } from '../components/debug';
 import { useSessionStore } from '../store/session';
 import { useLLMDebugStore } from '../store/llm-debug';
 import { getArtifactsByLineage, getLineagesBySession, getEvaluationForArtifact } from '../db/queries';
+import { getTrainingEventsBySession, getPayload } from '../db/training-signal-queries';
 import type { Lineage, Artifact, Evaluation } from '../types';
+import type { TrainingEvent } from '../types/training-signal';
 import { cn } from '../utils/cn';
 
-type HistoryTab = 'artifacts' | 'debug';
+type HistoryTab = 'artifacts' | 'debug' | 'signals';
 
 interface LineageHistory {
   lineage: Lineage;
   artifacts: (Artifact & { evaluation: Evaluation | null })[];
+}
+
+function TrainingEventCard({ event }: { event: TrainingEvent }) {
+  const [expanded, setExpanded] = useState(false);
+  const payload = getPayload(event.payloadHash);
+
+  return (
+    <Card className="overflow-hidden">
+      <div
+        className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-3">
+          {expanded ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-gray-900">{event.eventType}</span>
+              <span className="text-xs text-gray-500">
+                {new Date(event.timestamp).toLocaleString()}
+              </span>
+            </div>
+            <div className="flex gap-1 mt-1 flex-wrap">
+              {event.tags.map(tag => (
+                <span key={tag} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      {expanded && (
+        <div className="border-t border-gray-100 bg-gray-50 p-4">
+          <pre className="text-xs font-mono overflow-auto max-h-96 whitespace-pre-wrap text-gray-700">
+            {JSON.stringify(payload, null, 2)}
+          </pre>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function TrainingSignalsPanel({ sessionId }: { sessionId: string }) {
+  const [events, setEvents] = useState<TrainingEvent[]>([]);
+
+  useEffect(() => {
+    const loadedEvents = getTrainingEventsBySession(sessionId);
+    setEvents(loadedEvents);
+  }, [sessionId]);
+
+  if (events.length === 0) {
+    return (
+      <Card>
+        <CardContent className="text-center py-8 text-gray-500">
+          No training signals recorded for this session.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {events.map(event => (
+        <TrainingEventCard key={event.id} event={event} />
+      ))}
+    </div>
+  );
 }
 
 export function History() {
@@ -87,6 +156,18 @@ export function History() {
             Artifacts
           </button>
           <button
+            onClick={() => setActiveTab('signals')}
+            className={cn(
+              'px-4 py-2 font-medium text-sm transition-colors border-b-2 -mb-px flex items-center gap-2',
+              activeTab === 'signals'
+                ? 'text-primary-600 border-primary-500'
+                : 'text-gray-500 border-transparent hover:text-gray-700'
+            )}
+          >
+            <Activity className="w-4 h-4" />
+            Training Signals
+          </button>
+          <button
             onClick={() => setActiveTab('debug')}
             className={cn(
               'px-4 py-2 font-medium text-sm transition-colors border-b-2 -mb-px flex items-center gap-2',
@@ -107,6 +188,8 @@ export function History() {
 
         {activeTab === 'debug' ? (
           <LLMDebugPanel entries={allDebugEntries} onClear={clearEntries} />
+        ) : activeTab === 'signals' ? (
+          <TrainingSignalsPanel sessionId={id!} />
         ) : (
         <div className="flex gap-6">
           {/* Lineage Selector */}

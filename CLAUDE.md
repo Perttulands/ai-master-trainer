@@ -1,5 +1,29 @@
 # Training Camp - Claude Code Guide
 
+---
+## ⛔ CRITICAL RULES - READ FIRST
+
+**These rules are NON-NEGOTIABLE. Violating them wastes user time.**
+
+1. **NO MOCKS, NO FALLBACKS, NO FAKE DATA**
+   - If a feature requires an API/service that isn't available, **throw an error**
+   - Never create `generateFallback*()` or `mock*()` functions
+   - Never return placeholder/simulated data when the real thing fails
+
+2. **ERRORS OVER SILENT FAILURES**
+   - Users must know when something breaks
+   - A clear error message is better than fake success
+   - Example: `throw new Error("LLM not configured. Set VITE_LITELLM_API_KEY.")` ✅
+   - Example: `return "placeholder response"` ❌
+
+3. **REAL OR NOTHING**
+   - Either implement a feature properly or don't implement it
+   - Half-working features with mocks are worse than no feature
+
+**Before writing any function, ask: "What happens if this fails?" The answer must be "throw an error", not "return fake data".**
+
+---
+
 ## Project Overview
 
 Training Camp enables non-technical users to create and improve AI agents through expressing needs and evaluating outputs.

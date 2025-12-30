@@ -7,13 +7,14 @@
  * 3. Errors are properly thrown, not silently caught
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // We need to unmock the db/index module for these tests
-vi.unmock('../index');
+vi.unmock("../index");
 
 // Import the actual module (not the mock from setup.ts)
-const actualModule = await vi.importActual<typeof import('../index')>('../index');
+const actualModule =
+  await vi.importActual<typeof import("../index")>("../index");
 const {
   uint8ArrayToBase64,
   base64ToUint8Array,
@@ -21,21 +22,21 @@ const {
   _setDbForTesting,
 } = actualModule;
 
-describe('Base64 Conversion', () => {
-  describe('uint8ArrayToBase64', () => {
-    it('should convert small arrays correctly', () => {
+describe("Base64 Conversion", () => {
+  describe("uint8ArrayToBase64", () => {
+    it("should convert small arrays correctly", () => {
       const data = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
       const base64 = uint8ArrayToBase64(data);
-      expect(base64).toBe('SGVsbG8=');
+      expect(base64).toBe("SGVsbG8=");
     });
 
-    it('should convert empty array', () => {
+    it("should convert empty array", () => {
       const data = new Uint8Array([]);
       const base64 = uint8ArrayToBase64(data);
-      expect(base64).toBe('');
+      expect(base64).toBe("");
     });
 
-    it('should handle arrays larger than 10KB without stack overflow', () => {
+    it("should handle arrays larger than 10KB without stack overflow", () => {
       // This is the critical test - the bug causes stack overflow at ~10KB
       const size = 100 * 1024; // 100KB
       const data = new Uint8Array(size);
@@ -50,7 +51,7 @@ describe('Base64 Conversion', () => {
       expect(base64.length).toBeGreaterThan(0);
     });
 
-    it('should handle arrays at 1MB without stack overflow', () => {
+    it("should handle arrays at 1MB without stack overflow", () => {
       const size = 1024 * 1024; // 1MB
       const data = new Uint8Array(size);
       for (let i = 0; i < size; i++) {
@@ -61,28 +62,28 @@ describe('Base64 Conversion', () => {
     });
   });
 
-  describe('base64ToUint8Array', () => {
-    it('should convert base64 back to array correctly', () => {
-      const base64 = 'SGVsbG8='; // "Hello"
+  describe("base64ToUint8Array", () => {
+    it("should convert base64 back to array correctly", () => {
+      const base64 = "SGVsbG8="; // "Hello"
       const data = base64ToUint8Array(base64);
       expect(Array.from(data)).toEqual([72, 101, 108, 108, 111]);
     });
 
-    it('should handle empty string', () => {
-      const data = base64ToUint8Array('');
+    it("should handle empty string", () => {
+      const data = base64ToUint8Array("");
       expect(data.length).toBe(0);
     });
   });
 
-  describe('round-trip conversion', () => {
-    it('should round-trip small data correctly', () => {
+  describe("round-trip conversion", () => {
+    it("should round-trip small data correctly", () => {
       const original = new Uint8Array([1, 2, 3, 4, 5, 255, 0, 128]);
       const base64 = uint8ArrayToBase64(original);
       const restored = base64ToUint8Array(base64);
       expect(Array.from(restored)).toEqual(Array.from(original));
     });
 
-    it('should round-trip 100KB data correctly', () => {
+    it("should round-trip 100KB data correctly", () => {
       const size = 100 * 1024;
       const original = new Uint8Array(size);
       for (let i = 0; i < size; i++) {
@@ -104,7 +105,7 @@ describe('Base64 Conversion', () => {
   });
 });
 
-describe('saveDatabase', () => {
+describe("saveDatabase", () => {
   // Mock localStorage for these tests
   let localStorageMock: {
     getItem: ReturnType<typeof vi.fn>;
@@ -120,16 +121,17 @@ describe('saveDatabase', () => {
       removeItem: vi.fn(),
       clear: vi.fn(),
     };
-    vi.stubGlobal('localStorage', localStorageMock);
+    vi.stubGlobal("localStorage", localStorageMock);
     _setDbForTesting(null);
   });
 
-  it('should throw when database not initialized', () => {
+  it("should throw when database not initialized", () => {
     _setDbForTesting(null);
-    expect(() => saveDatabase()).toThrow('Database not initialized');
+    expect(() => saveDatabase()).toThrow("Database not initialized");
   });
 
-  it('should save database to localStorage', () => {
+  it("should save database to localStorage", () => {
+    vi.useFakeTimers();
     // Create a mock database with export() method
     const mockData = new Uint8Array([1, 2, 3, 4, 5]);
     const mockDb = {
@@ -139,14 +141,16 @@ describe('saveDatabase', () => {
     _setDbForTesting(mockDb as any);
 
     saveDatabase();
+    vi.advanceTimersByTime(1000);
 
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
-      'training-camp-db',
+      "training-camp-db",
       expect.any(String)
     );
+    vi.useRealTimers();
   });
 
-  it('should throw on quota exceeded error', () => {
+  it("should throw on quota exceeded error", () => {
     const mockDb = {
       export: vi.fn(() => new Uint8Array([1, 2, 3])),
     };
@@ -154,11 +158,11 @@ describe('saveDatabase', () => {
     _setDbForTesting(mockDb as any);
 
     // Mock localStorage to throw quota exceeded
-    const quotaError = new DOMException('Quota exceeded', 'QuotaExceededError');
+    const quotaError = new DOMException("Quota exceeded", "QuotaExceededError");
     localStorageMock.setItem.mockImplementation(() => {
       throw quotaError;
     });
 
-    expect(() => saveDatabase()).toThrow(/quota exceeded/i);
+    expect(() => saveDatabase(true)).toThrow(/quota exceeded/i);
   });
 });

@@ -6,17 +6,17 @@ import type {
   AgentTool,
   AgentParameters,
   AgentFlowStep,
-} from '../types/agent';
-import { llmClient, isLLMConfigured } from '../api/llm';
-import { generateId } from '../utils/id';
+} from "../types/agent";
+import { llmClient, isLLMConfigured } from "../api/llm";
+import { generateId } from "../utils/id";
 
 // Evolution intensity levels based on score
-type EvolutionIntensity = 'minor' | 'moderate' | 'major';
+type EvolutionIntensity = "minor" | "moderate" | "major";
 
 function getEvolutionIntensity(score: number): EvolutionIntensity {
-  if (score >= 8) return 'minor';
-  if (score >= 5) return 'moderate';
-  return 'major';
+  if (score >= 8) return "minor";
+  if (score >= 5) return "moderate";
+  return "major";
 }
 
 /**
@@ -26,21 +26,22 @@ function getEvolutionIntensity(score: number): EvolutionIntensity {
 export async function evolveSystemPrompt(
   currentPrompt: string,
   score: number,
-  directives: string | null
+  directives: string[] | null
 ): Promise<string> {
   const intensity = getEvolutionIntensity(score);
+  const directivesText = directives ? directives.join("\n") : "";
 
   // Try LLM-based evolution
   if (isLLMConfigured()) {
     try {
       const systemMessage = `You are an AI agent prompt engineer. Your task is to improve system prompts based on performance feedback.
 Evolution intensity: ${intensity}
-${directives ? `User directives to incorporate: ${directives}` : ''}
+${directivesText ? `User directives to incorporate:\n${directivesText}` : ""}
 
 For ${intensity} changes:
-${intensity === 'minor' ? '- Make subtle refinements to clarity and precision\n- Polish wording without changing core behavior\n- Ensure consistency in tone' : ''}
-${intensity === 'moderate' ? '- Adjust emphasis on key behaviors\n- Add or refine specific instructions\n- Improve structure and organization' : ''}
-${intensity === 'major' ? '- Significantly rewrite for better clarity\n- Restructure the prompt organization\n- Add new behavioral guidelines\n- Remove ineffective instructions' : ''}
+${intensity === "minor" ? "- Make subtle refinements to clarity and precision\n- Polish wording without changing core behavior\n- Ensure consistency in tone" : ""}
+${intensity === "moderate" ? "- Adjust emphasis on key behaviors\n- Add or refine specific instructions\n- Improve structure and organization" : ""}
+${intensity === "major" ? "- Significantly rewrite for better clarity\n- Restructure the prompt organization\n- Add new behavioral guidelines\n- Remove ineffective instructions" : ""}
 
 Return ONLY the improved system prompt, no explanations.`;
 
@@ -53,15 +54,15 @@ Improve this prompt according to the evolution intensity level.`;
 
       const improvedPrompt = await llmClient.chat(
         [
-          { role: 'system', content: systemMessage },
-          { role: 'user', content: userMessage },
+          { role: "system", content: systemMessage },
+          { role: "user", content: userMessage },
         ],
-        { maxTokens: 2048, temperature: intensity === 'major' ? 0.8 : 0.5 }
+        { maxTokens: 2048, temperature: intensity === "major" ? 0.8 : 0.5 }
       );
 
       return improvedPrompt.trim();
     } catch (error) {
-      console.warn('LLM evolution failed, using fallback:', error);
+      console.warn("LLM evolution failed, using fallback:", error);
     }
   }
 
@@ -69,29 +70,29 @@ Improve this prompt according to the evolution intensity level.`;
   let evolvedPrompt = currentPrompt;
 
   // Apply directives if present
-  if (directives) {
-    evolvedPrompt = `${evolvedPrompt}\n\nAdditional guidance: ${directives}`;
+  if (directivesText) {
+    evolvedPrompt = `${evolvedPrompt}\n\nAdditional guidance:\n${directivesText}`;
   }
 
   // Add intensity-based modifications
   switch (intensity) {
-    case 'minor':
+    case "minor":
       // Minor polish - add clarity reminder
-      if (!evolvedPrompt.includes('Be clear and precise')) {
+      if (!evolvedPrompt.includes("Be clear and precise")) {
         evolvedPrompt = `${evolvedPrompt}\n\nBe clear and precise in your responses.`;
       }
       break;
 
-    case 'moderate':
+    case "moderate":
       // Moderate changes - add structure
-      if (!evolvedPrompt.includes('Follow these guidelines')) {
+      if (!evolvedPrompt.includes("Follow these guidelines")) {
         evolvedPrompt = `${evolvedPrompt}\n\nFollow these guidelines:\n1. Focus on accuracy\n2. Provide relevant details\n3. Be concise but thorough`;
       }
       break;
 
-    case 'major':
+    case "major":
       // Major overhaul - restructure
-      evolvedPrompt = `CORE OBJECTIVE:\n${currentPrompt}\n\nKEY BEHAVIORS:\n- Prioritize accuracy over speed\n- Validate assumptions before acting\n- Provide clear explanations for decisions\n- Ask for clarification when needed\n\nQUALITY STANDARDS:\n- Ensure completeness of responses\n- Maintain consistency in approach\n- Focus on user satisfaction${directives ? `\n\nSPECIFIC GUIDANCE:\n${directives}` : ''}`;
+      evolvedPrompt = `CORE OBJECTIVE:\n${currentPrompt}\n\nKEY BEHAVIORS:\n- Prioritize accuracy over speed\n- Validate assumptions before acting\n- Provide clear explanations for decisions\n- Ask for clarification when needed\n\nQUALITY STANDARDS:\n- Ensure completeness of responses\n- Maintain consistency in approach\n- Focus on user satisfaction${directivesText ? `\n\nSPECIFIC GUIDANCE:\n${directivesText}` : ""}`;
       break;
   }
 
@@ -107,16 +108,16 @@ export function evolveTools(tools: AgentTool[], score: number): AgentTool[] {
   const evolvedTools = tools.map((tool) => ({ ...tool }));
 
   switch (intensity) {
-    case 'minor':
+    case "minor":
       // Minor: Just refine descriptions
       return evolvedTools.map((tool) => ({
         ...tool,
-        description: tool.description.endsWith('.')
+        description: tool.description.endsWith(".")
           ? tool.description
           : `${tool.description}.`,
       }));
 
-    case 'moderate':
+    case "moderate":
       // Moderate: Improve parameter descriptions
       return evolvedTools.map((tool) => ({
         ...tool,
@@ -128,7 +129,7 @@ export function evolveTools(tools: AgentTool[], score: number): AgentTool[] {
         })),
       }));
 
-    case 'major':
+    case "major":
       // Major: Consider restructuring tools
       // Add error handling hints to descriptions
       return evolvedTools.map((tool) => ({
@@ -137,7 +138,7 @@ export function evolveTools(tools: AgentTool[], score: number): AgentTool[] {
         description: `${tool.description} Handle errors gracefully.`,
         parameters: tool.parameters.map((param) => ({
           ...param,
-          description: `${param.description}${param.required ? ' (Required - must be provided)' : ' (Optional)'}`,
+          description: `${param.description}${param.required ? " (Required - must be provided)" : " (Optional)"}`,
         })),
       }));
   }
@@ -155,7 +156,7 @@ export function evolveParameters(
   const evolved = { ...params };
 
   switch (intensity) {
-    case 'minor':
+    case "minor":
       // Minor: Slight temperature adjustment
       if (score >= 9) {
         // Near perfect - keep stable
@@ -166,14 +167,14 @@ export function evolveParameters(
       }
       break;
 
-    case 'moderate':
+    case "moderate":
       // Moderate: Adjust temperature and add/modify penalties
       evolved.temperature = score >= 6 ? 0.6 : 0.8;
       evolved.frequencyPenalty = (params.frequencyPenalty ?? 0) + 0.1;
       evolved.presencePenalty = (params.presencePenalty ?? 0) + 0.1;
       break;
 
-    case 'major':
+    case "major":
       // Major: Significant parameter changes
       evolved.temperature = 0.7; // Reset to balanced
       evolved.maxTokens = Math.min(4096, params.maxTokens + 512);
@@ -203,7 +204,7 @@ function evolveFlow(
   flow: AgentFlowStep[],
   intensity: EvolutionIntensity
 ): AgentFlowStep[] {
-  if (intensity !== 'major') {
+  if (intensity !== "major") {
     // Only major changes affect flow
     return flow;
   }
@@ -217,22 +218,21 @@ function evolveFlow(
   // Check if there's already a validation step
   const hasValidation = evolvedFlow.some(
     (step) =>
-      step.type === 'condition' &&
-      step.name.toLowerCase().includes('valid')
+      step.type === "condition" && step.name.toLowerCase().includes("valid")
   );
 
   // Add a validation step if missing (for major overhauls)
   if (!hasValidation && evolvedFlow.length > 0) {
     const lastStep = evolvedFlow[evolvedFlow.length - 1];
-    if (lastStep.type === 'output') {
+    if (lastStep.type === "output") {
       // Insert validation before output
       const validationStep: AgentFlowStep = {
         id: generateId(),
-        type: 'condition',
-        name: 'Validate Output',
+        type: "condition",
+        name: "Validate Output",
         config: {
-          condition: 'output.isValid',
-          description: 'Validate output before returning',
+          condition: "output.isValid",
+          description: "Validate output before returning",
         },
         position: {
           x: lastStep.position.x,
@@ -268,27 +268,29 @@ export async function evolveAgent(
   need: string,
   score: number,
   feedback: string | null,
-  stickyDirective: string | null,
-  oneshotDirective: string | null
+  stickyDirectives: string[] | null,
+  oneshotDirectives: string[] | null
 ): Promise<AgentDefinition> {
   // Validate score
   if (score < 1 || score > 10) {
-    throw new Error('Score must be between 1 and 10');
+    throw new Error("Score must be between 1 and 10");
   }
 
   const intensity = getEvolutionIntensity(score);
 
   // Combine directives for prompt evolution
-  const combinedDirectives = [stickyDirective, oneshotDirective, feedback]
-    .filter(Boolean)
-    .join('\n');
+  const allDirectives = [
+    ...(stickyDirectives || []),
+    ...(oneshotDirectives || []),
+    feedback,
+  ].filter(Boolean) as string[];
 
   // Evolve each component
   const [evolvedSystemPrompt] = await Promise.all([
     evolveSystemPrompt(
       agent.systemPrompt,
       score,
-      combinedDirectives || null
+      allDirectives.length > 0 ? allDirectives : null
     ),
   ]);
 
@@ -309,24 +311,24 @@ export async function evolveAgent(
   };
 
   // If LLM is available and we're doing major changes, try to improve name/description
-  if (isLLMConfigured() && intensity === 'major') {
+  if (isLLMConfigured() && intensity === "major") {
     try {
       const metaPrompt = `Given an AI agent that was performing poorly (score: ${score}/10) for the need: "${need}"
 Current name: ${agent.name}
 Current description: ${agent.description}
-${feedback ? `Feedback received: ${feedback}` : ''}
+${feedback ? `Feedback received: ${feedback}` : ""}
 
 Suggest a brief, improved description (1-2 sentences) that reflects the evolved agent's improved capabilities.
 Return ONLY the description, no explanations.`;
 
       const improvedDescription = await llmClient.chat(
-        [{ role: 'user', content: metaPrompt }],
+        [{ role: "user", content: metaPrompt }],
         { maxTokens: 256, temperature: 0.6 }
       );
 
       evolvedAgent.description = improvedDescription.trim();
     } catch (error) {
-      console.warn('Failed to evolve description:', error);
+      console.warn("Failed to evolve description:", error);
       // Keep original description
     }
   }

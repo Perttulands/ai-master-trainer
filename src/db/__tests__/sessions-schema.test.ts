@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, vi } from 'vitest';
-import type { SqlJsStatic } from 'sql.js';
+import { describe, it, expect, beforeAll, vi } from "vitest";
+import type { SqlJsStatic } from "sql.js";
 import { getSession, getAllSessions } from "../queries";
-import { _setDbForTesting as setDatabase } from '../index';
+import { _setDbForTesting as setDatabase } from "../index";
 
 // Unmock sql.js for these integration tests
 vi.unmock("sql.js");
@@ -32,7 +32,9 @@ describe("Session Queries Schema Robustness", () => {
         mode TEXT NOT NULL DEFAULT 'training',
         promoted_from TEXT,
         input_prompt TEXT,
-        initial_agent_count INTEGER NOT NULL DEFAULT 4
+        initial_agent_count INTEGER NOT NULL DEFAULT 4,
+        trainer_messages TEXT,
+        rubric TEXT
       );
     `);
 

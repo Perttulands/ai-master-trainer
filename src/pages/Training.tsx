@@ -85,6 +85,13 @@ export function Training() {
     }
   }, [sessionId, loadAgentsForSession, loadContext]);
 
+  // Load messages from session
+  useEffect(() => {
+    if (session?.trainerMessages) {
+      setMessages(session.trainerMessages);
+    }
+  }, [session?.trainerMessages]);
+
   const expandedLineage = lineages.find((l) => l.id === expandedCardId);
 
   // Handler to view an agent - shows the real agent for this lineage
@@ -228,7 +235,11 @@ export function Training() {
         timestamp: Date.now(),
       };
 
-      setMessages((prev) => [...prev, userMessage]);
+      const newMessages = [...messages, userMessage];
+      setMessages(newMessages);
+      if (sessionId) {
+        updateSession(sessionId, { trainerMessages: newMessages });
+      }
       setIsChatLoading(true);
 
       try {
@@ -248,20 +259,31 @@ export function Training() {
         };
 
         const response = await respondToChat(content, context);
-        setMessages((prev) => [...prev, response]);
+        const updatedMessages = [...newMessages, response];
+        setMessages(updatedMessages);
+        if (sessionId) {
+          updateSession(sessionId, { trainerMessages: updatedMessages });
+        }
       } catch (error) {
         console.error("Chat error:", error);
       } finally {
         setIsChatLoading(false);
       }
     },
-    [session, lineages]
+    [session, lineages, messages, sessionId]
   );
+
+  const handleResetChat = useCallback(() => {
+    if (sessionId) {
+      setMessages([]);
+      updateSession(sessionId, { trainerMessages: [] });
+    }
+  }, [sessionId]);
 
   // Handler to apply trainer-proposed actions
   const handleApplyActions = useCallback(
     async (actions: TrainerAction[]) => {
-      const { setScore, setDirective } = useLineageStore.getState();
+      const { setScore, addDirective } = useLineageStore.getState();
 
       for (const action of actions) {
         switch (action.kind) {
@@ -273,12 +295,12 @@ export function Training() {
           case "add_comment":
             if (action.lineageId) {
               // Map legacy comments to oneshot directives
-              setDirective(action.lineageId, "oneshot", action.comment);
+              addDirective(action.lineageId, "oneshot", action.comment);
             }
             break;
           case "set_directive":
             if (action.lineageId) {
-              setDirective(
+              addDirective(
                 action.lineageId,
                 action.directive.type,
                 action.directive.content
@@ -540,6 +562,7 @@ export function Training() {
                   messages={messages}
                   onSendMessage={handleSendMessage}
                   onApplyActions={handleApplyActions}
+                  onResetChat={handleResetChat}
                   isLoading={isChatLoading}
                 />
               )}
@@ -575,6 +598,7 @@ export function Training() {
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}
         agents={agentsForExport}
+        sessionId={sessionId ?? undefined}
       />
     </div>
   );

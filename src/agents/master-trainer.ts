@@ -6,6 +6,45 @@ import { generateId } from "../utils/id";
 import type { TrainerAction } from "../types";
 
 /**
+ * Generate an evaluation rubric based on user need and constraints
+ * The rubric helps users score agent outputs consistently
+ */
+export async function generateRubric(
+  need: string,
+  constraints?: string
+): Promise<string> {
+  if (!isLLMConfigured()) {
+    throw new Error(
+      "LLM not configured. Set VITE_LITELLM_API_BASE and VITE_LITELLM_API_KEY to generate rubrics."
+    );
+  }
+
+  const systemPrompt = `You are an expert at creating evaluation rubrics for AI outputs.
+
+Given a user's need (what kind of agent they want) and optional constraints, create a practical evaluation rubric that helps the user score outputs 1-10.
+
+The rubric should:
+1. List 3-5 key criteria specific to this task
+2. Be concise but actionable
+3. Help distinguish between good (8-10), okay (5-7), and poor (1-4) outputs
+4. Focus on what matters most for this specific need
+
+Format as a bullet list. Output ONLY the rubric criteria - no headers, explanations, or meta-commentary.`;
+
+  let userPrompt = `Need: "${need}"`;
+  if (constraints) {
+    userPrompt += `\nConstraints: ${constraints}`;
+  }
+  userPrompt += `\n\nCreate the evaluation rubric:`;
+
+  const result = await generateWithSystem(systemPrompt, userPrompt, {
+    maxTokens: 512,
+    temperature: 0.7,
+  });
+  return result.trim();
+}
+
+/**
  * Propose an initial input prompt for testing agents
  * The input prompt is the actual task/query that agents will respond to
  */
@@ -247,7 +286,7 @@ export interface TrainerChatContext {
     isLocked: boolean;
     score?: number;
     comment?: string;
-    stickyDirective?: string;
+    stickyDirective?: string[];
     content?: string; // Full artifact content for best proposals
   }>;
 }
@@ -263,8 +302,10 @@ export async function respondToChat(
       if (l.score !== undefined) parts.push(`Score: ${l.score}/10`);
       if (l.comment)
         parts.push(`Comment: "${truncateForPrompt(l.comment, 200)}"`);
-      if (l.stickyDirective)
-        parts.push(`Directive: "${truncateForPrompt(l.stickyDirective, 200)}"`);
+      if (l.stickyDirective && l.stickyDirective.length > 0)
+        parts.push(
+          `Directives: "${truncateForPrompt(l.stickyDirective.join("; "), 200)}"`
+        );
       if (l.content)
         parts.push(`Latest output: "${truncateForPrompt(l.content, 400)}"`);
       return `- Lineage ${parts.join(", ")}`;
@@ -295,7 +336,7 @@ When you want to propose actions, include a JSON block at the end of your messag
 
 Action types:
 - set_grade: Set a score (1-10) for a lineage
-- set_directive: Set a sticky or oneshot directive. Use "oneshot" for specific feedback on the current output that should be addressed in the next cycle. Use "sticky" for permanent rules.
+- set_directive: Add a sticky or oneshot directive. Use "oneshot" for specific feedback on the current output that should be addressed in the next cycle. Use "sticky" for permanent rules.
 - add_lineage: Add new agents to the session
 
 Only propose actions when relevant to the user's request. Most responses should just be helpful advice.`;
@@ -473,8 +514,8 @@ function buildEvolutionPrompt(
   strategy: { tag: string; description: string },
   previousScore: number,
   previousContent: string,
-  stickyDirective: string | null,
-  oneshotDirective: string | null,
+  stickyDirectives: string[] | null,
+  oneshotDirectives: string[] | null,
   cycle: number
 ): string {
   let prompt = `Evolve this content for cycle ${cycle}.
@@ -488,12 +529,12 @@ Previous content:
 ${previousContent}
 ---`;
 
-  if (stickyDirective) {
-    prompt += `\n\nPersistent directive (always apply): ${stickyDirective}`;
+  if (stickyDirectives && stickyDirectives.length > 0) {
+    prompt += `\n\nPersistent directives (always apply):\n- ${stickyDirectives.join("\n- ")}`;
   }
 
-  if (oneshotDirective) {
-    prompt += `\n\nOne-time directive (apply this cycle only): ${oneshotDirective}`;
+  if (oneshotDirectives && oneshotDirectives.length > 0) {
+    prompt += `\n\nOne-time directives (apply this cycle only):\n- ${oneshotDirectives.join("\n- ")}`;
   }
 
   if (previousScore < 5) {
@@ -570,12 +611,14 @@ function generateFallbackEvolution(
       "Significantly revised based on low score - trying a fresh angle";
   }
 
-  const directiveNote = lineage.directiveSticky
-    ? `\nApplying sticky directive: "${lineage.directiveSticky}"`
-    : "";
-  const oneshotNote = lineage.directiveOneshot
-    ? `\nApplying one-shot directive: "${lineage.directiveOneshot}"`
-    : "";
+  const directiveNote =
+    lineage.directiveSticky && lineage.directiveSticky.length > 0
+      ? `\nApplying sticky directives: "${lineage.directiveSticky.join("; ")}"`
+      : "";
+  const oneshotNote =
+    lineage.directiveOneshot && lineage.directiveOneshot.length > 0
+      ? `\nApplying one-shot directives: "${lineage.directiveOneshot.join("; ")}"`
+      : "";
 
   return `[CYCLE ${cycle} - ${strategy.tag.toUpperCase()} EVOLUTION]
 

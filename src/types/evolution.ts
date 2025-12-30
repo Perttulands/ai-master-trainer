@@ -226,8 +226,8 @@ export interface EvolutionTrigger {
   score: number;
   comment?: string;
   directives: {
-    sticky?: string;
-    oneshot?: string;
+    sticky?: string[];
+    oneshot?: string[];
   };
 }
 
@@ -330,8 +330,8 @@ export interface CreateEvolutionRecordInput {
   triggerScore: number;
   triggerComment?: string;
   triggerDirectives?: {
-    sticky?: string;
-    oneshot?: string;
+    sticky?: string[];
+    oneshot?: string[];
   };
   scoreAnalysis: ScoreAnalysis;
   creditAssignment: PromptCredit[] | TrajectoryCredit[];

@@ -1,21 +1,21 @@
-import { create } from 'zustand';
-import type { Lineage, LineageWithArtifact, LineageLabel } from '../types';
-import type { AgentDefinition } from '../types/agent';
-import type { ExecutionSpan } from '../types/evolution';
-import * as queries from '../db/queries';
+import { create } from "zustand";
+import type { Lineage, LineageWithArtifact, LineageLabel } from "../types";
+import type { AgentDefinition } from "../types/agent";
+import type { ExecutionSpan } from "../types/evolution";
+import * as queries from "../db/queries";
 import {
   executeAgentWithFallback,
   generateDefaultTestInput,
   type ExecutionInput,
   type ExecutionOptions,
-} from '../services/agent-executor';
-import { runEvolutionPipeline } from '../services/evolution-pipeline';
-import { generateId } from '../utils/id';
+} from "../services/agent-executor";
+import { runEvolutionPipeline } from "../services/evolution-pipeline";
+import { generateId } from "../utils/id";
 import {
   recordAgentCreated,
   recordArtifactScored,
   recordLineageLocked,
-} from '../services/training-signal/recorder';
+} from "../services/training-signal/recorder";
 
 interface RegenerateWithAgentsOptions {
   lineage: LineageWithArtifact;
@@ -33,27 +33,52 @@ interface LineageState {
 
   // Actions
   loadLineages: (sessionId: string) => void;
-  createInitialLineages: (sessionId: string, strategies: { label: LineageLabel; strategyTag: string; content: string }[]) => void;
+  createInitialLineages: (
+    sessionId: string,
+    strategies: { label: LineageLabel; strategyTag: string; content: string }[]
+  ) => void;
   createInitialLineagesWithAgents: (
     sessionId: string,
-    configs: { label: LineageLabel; strategyTag: string; agent: AgentDefinition }[],
+    configs: {
+      label: LineageLabel;
+      strategyTag: string;
+      agent: AgentDefinition;
+    }[],
     testInput?: ExecutionInput
   ) => Promise<void>;
   addLineage: (
     sessionId: string,
-    config: { label: LineageLabel; strategyTag: string; agent: AgentDefinition },
+    config: {
+      label: LineageLabel;
+      strategyTag: string;
+      agent: AgentDefinition;
+    },
     testInput?: ExecutionInput
   ) => Promise<void>;
   toggleLock: (lineageId: string) => void;
   setScore: (lineageId: string, score: number) => void;
   setComment: (lineageId: string, comment: string) => void;
-  setDirective: (lineageId: string, type: 'sticky' | 'oneshot', content: string) => void;
-  clearDirective: (lineageId: string, type: 'sticky' | 'oneshot') => void;
-  regenerateUnlocked: (sessionId: string, generateArtifact: (lineage: Lineage, cycle: number) => Promise<string>) => Promise<void>;
+  addDirective: (
+    lineageId: string,
+    type: "sticky" | "oneshot",
+    content: string
+  ) => void;
+  removeDirective: (
+    lineageId: string,
+    type: "sticky" | "oneshot",
+    index: number
+  ) => void;
+  clearDirectives: (lineageId: string, type: "sticky" | "oneshot") => void;
+  regenerateUnlocked: (
+    sessionId: string,
+    generateArtifact: (lineage: Lineage, cycle: number) => Promise<string>
+  ) => Promise<void>;
   regenerateUnlockedWithAgents: (
     sessionId: string,
     need: string,
-    evolveAgent: (options: RegenerateWithAgentsOptions) => Promise<AgentDefinition>,
+    evolveAgent: (
+      options: RegenerateWithAgentsOptions
+    ) => Promise<AgentDefinition>,
     getAgentForLineage: (lineageId: string) => AgentDefinition | undefined
   ) => Promise<void>;
   regenerateWithFullPipeline: (
@@ -85,16 +110,20 @@ export const useLineageStore = create<LineageState>((set, get) => ({
     try {
       set({ isLoading: true });
       const lineages = queries.getLineagesBySession(sessionId);
-      const lineagesWithArtifacts: LineageWithArtifact[] = lineages.map((lineage) => {
-        const artifact = queries.getLatestArtifact(lineage.id);
-        const evaluation = artifact ? queries.getEvaluationForArtifact(artifact.id) : null;
-        return {
-          ...lineage,
-          currentArtifact: artifact,
-          currentEvaluation: evaluation,
-          cycle: artifact?.cycle ?? 0,
-        };
-      });
+      const lineagesWithArtifacts: LineageWithArtifact[] = lineages.map(
+        (lineage) => {
+          const artifact = queries.getLatestArtifact(lineage.id);
+          const evaluation = artifact
+            ? queries.getEvaluationForArtifact(artifact.id)
+            : null;
+          return {
+            ...lineage,
+            currentArtifact: artifact,
+            currentEvaluation: evaluation,
+            cycle: artifact?.cycle ?? 0,
+          };
+        }
+      );
       set({ lineages: lineagesWithArtifacts, isLoading: false, error: null });
     } catch (e) {
       set({ error: (e as Error).message, isLoading: false });
@@ -102,34 +131,54 @@ export const useLineageStore = create<LineageState>((set, get) => ({
   },
 
   createInitialLineages: (sessionId, strategies) => {
-    const lineagesWithArtifacts: LineageWithArtifact[] = strategies.map((strategy) => {
-      const lineage = queries.createLineage(sessionId, strategy.label, strategy.strategyTag);
-      const artifact = queries.createArtifact(lineage.id, 1, strategy.content);
-      return {
-        ...lineage,
-        currentArtifact: artifact,
-        currentEvaluation: null,
-        cycle: 1,
-      };
-    });
+    const lineagesWithArtifacts: LineageWithArtifact[] = strategies.map(
+      (strategy) => {
+        const lineage = queries.createLineage(
+          sessionId,
+          strategy.label,
+          strategy.strategyTag
+        );
+        const artifact = queries.createArtifact(
+          lineage.id,
+          1,
+          strategy.content
+        );
+        return {
+          ...lineage,
+          currentArtifact: artifact,
+          currentEvaluation: null,
+          cycle: 1,
+        };
+      }
+    );
     set({ lineages: lineagesWithArtifacts });
   },
 
-  createInitialLineagesWithAgents: async (sessionId, configs, testInput?: ExecutionInput) => {
+  createInitialLineagesWithAgents: async (
+    sessionId,
+    configs,
+    testInput?: ExecutionInput
+  ) => {
     set({ isLoading: true });
 
     try {
       // Get session for test input (use inputPrompt if set, otherwise fallback to need)
       const session = queries.getSession(sessionId);
-      const input = testInput || generateDefaultTestInput(
-        session?.need || 'Demonstrate your capabilities',
-        session?.inputPrompt
-      );
+      const input =
+        testInput ||
+        generateDefaultTestInput(
+          session?.need || "Demonstrate your capabilities",
+          session?.inputPrompt
+        );
 
       const lineagesWithArtifacts: LineageWithArtifact[] = await Promise.all(
         configs.map(async (config) => {
           // Create lineage
-          const lineage = queries.createLineage(sessionId, config.label, config.strategyTag);
+          const lineage = queries.createLineage(
+            sessionId,
+            config.label,
+            config.strategyTag
+          );
 
           // Create agent linked to lineage
           queries.createAgent(config.agent, lineage.id);
@@ -138,7 +187,10 @@ export const useLineageStore = create<LineageState>((set, get) => ({
           try {
             recordAgentCreated(config.agent, lineage.id);
           } catch (recordError) {
-            console.warn('[Lineages] Failed to record agent creation:', recordError);
+            console.warn(
+              "[Lineages] Failed to record agent creation:",
+              recordError
+            );
           }
 
           // Execute agent to produce artifact content with tracking
@@ -147,21 +199,30 @@ export const useLineageStore = create<LineageState>((set, get) => ({
             cycle: 1,
             createRecords: true,
           };
-          const result = await executeAgentWithFallback(config.agent, input, executionOptions);
+          const result = await executeAgentWithFallback(
+            config.agent,
+            input,
+            executionOptions
+          );
 
           // Create artifact with execution output and span metadata
-          const artifact = queries.createArtifact(lineage.id, 1, result.output, {
-            agentId: config.agent.id,
-            agentVersion: config.agent.version,
-            executionSuccess: result.success,
-            error: result.error,
-            executionTimeMs: result.metadata.executionTimeMs,
-            inputUsed: result.metadata.inputUsed,
-            rolloutId: result.metadata.rolloutId,
-            attemptId: result.metadata.attemptId,
-            stepsExecuted: result.metadata.stepsExecuted,
-            spanCount: result.spans?.length ?? 0,
-          });
+          const artifact = queries.createArtifact(
+            lineage.id,
+            1,
+            result.output,
+            {
+              agentId: config.agent.id,
+              agentVersion: config.agent.version,
+              executionSuccess: result.success,
+              error: result.error,
+              executionTimeMs: result.metadata.executionTimeMs,
+              inputUsed: result.metadata.inputUsed,
+              rolloutId: result.metadata.rolloutId,
+              attemptId: result.metadata.attemptId,
+              stepsExecuted: result.metadata.stepsExecuted,
+              spanCount: result.spans?.length ?? 0,
+            }
+          );
 
           return {
             ...lineage,
@@ -184,13 +245,19 @@ export const useLineageStore = create<LineageState>((set, get) => ({
     try {
       // Get session for test input (use inputPrompt if set, otherwise fallback to need)
       const session = queries.getSession(sessionId);
-      const input = testInput || generateDefaultTestInput(
-        session?.need || 'Demonstrate your capabilities',
-        session?.inputPrompt
-      );
+      const input =
+        testInput ||
+        generateDefaultTestInput(
+          session?.need || "Demonstrate your capabilities",
+          session?.inputPrompt
+        );
 
       // Create lineage
-      const lineage = queries.createLineage(sessionId, config.label, config.strategyTag);
+      const lineage = queries.createLineage(
+        sessionId,
+        config.label,
+        config.strategyTag
+      );
 
       // Create agent linked to lineage
       queries.createAgent(config.agent, lineage.id);
@@ -199,7 +266,10 @@ export const useLineageStore = create<LineageState>((set, get) => ({
       try {
         recordAgentCreated(config.agent, lineage.id);
       } catch (recordError) {
-        console.warn('[Lineages] Failed to record agent creation:', recordError);
+        console.warn(
+          "[Lineages] Failed to record agent creation:",
+          recordError
+        );
       }
 
       // Execute agent to produce artifact content with tracking
@@ -208,7 +278,11 @@ export const useLineageStore = create<LineageState>((set, get) => ({
         cycle: 1,
         createRecords: true,
       };
-      const result = await executeAgentWithFallback(config.agent, input, executionOptions);
+      const result = await executeAgentWithFallback(
+        config.agent,
+        input,
+        executionOptions
+      );
 
       // Create artifact with execution output and span metadata
       const artifact = queries.createArtifact(lineage.id, 1, result.output, {
@@ -261,7 +335,10 @@ export const useLineageStore = create<LineageState>((set, get) => ({
           .map((l) => l.id);
         recordLineageLocked(lineageId, competitorIds);
       } catch (recordError) {
-        console.warn('[Lineages] Failed to record lineage locked:', recordError);
+        console.warn(
+          "[Lineages] Failed to record lineage locked:",
+          recordError
+        );
       }
     }
   },
@@ -282,12 +359,22 @@ export const useLineageStore = create<LineageState>((set, get) => ({
 
       // Record training signal for score update
       try {
-        recordArtifactScored(lineage.currentArtifact, score, lineage.currentEvaluation.comment ?? undefined);
+        recordArtifactScored(
+          lineage.currentArtifact,
+          score,
+          lineage.currentEvaluation.comment ?? undefined
+        );
       } catch (recordError) {
-        console.warn('[Lineages] Failed to record artifact scored:', recordError);
+        console.warn(
+          "[Lineages] Failed to record artifact scored:",
+          recordError
+        );
       }
     } else {
-      const evaluation = queries.createEvaluation(lineage.currentArtifact.id, score);
+      const evaluation = queries.createEvaluation(
+        lineage.currentArtifact.id,
+        score
+      );
       set((state) => ({
         lineages: state.lineages.map((l) =>
           l.id === lineageId ? { ...l, currentEvaluation: evaluation } : l
@@ -298,7 +385,10 @@ export const useLineageStore = create<LineageState>((set, get) => ({
       try {
         recordArtifactScored(lineage.currentArtifact, score);
       } catch (recordError) {
-        console.warn('[Lineages] Failed to record artifact scored:', recordError);
+        console.warn(
+          "[Lineages] Failed to record artifact scored:",
+          recordError
+        );
       }
     }
   },
@@ -317,27 +407,80 @@ export const useLineageStore = create<LineageState>((set, get) => ({
     }));
   },
 
-  setDirective: (lineageId: string, type: 'sticky' | 'oneshot', content: string) => {
-    if (type === 'sticky') {
-      queries.updateLineage(lineageId, { directiveSticky: content });
+  addDirective: (
+    lineageId: string,
+    type: "sticky" | "oneshot",
+    content: string
+  ) => {
+    const lineage = get().lineages.find((l) => l.id === lineageId);
+    if (!lineage) return;
+
+    const currentDirectives =
+      type === "sticky"
+        ? lineage.directiveSticky || []
+        : lineage.directiveOneshot || [];
+
+    const newDirectives = [...currentDirectives, content];
+
+    if (type === "sticky") {
+      queries.updateLineage(lineageId, { directiveSticky: newDirectives });
     } else {
-      queries.updateLineage(lineageId, { directiveOneshot: content });
+      queries.updateLineage(lineageId, { directiveOneshot: newDirectives });
     }
+
     set((state) => ({
       lineages: state.lineages.map((l) =>
         l.id === lineageId
           ? {
               ...l,
-              directiveSticky: type === 'sticky' ? content : l.directiveSticky,
-              directiveOneshot: type === 'oneshot' ? content : l.directiveOneshot,
+              directiveSticky:
+                type === "sticky" ? newDirectives : l.directiveSticky,
+              directiveOneshot:
+                type === "oneshot" ? newDirectives : l.directiveOneshot,
             }
           : l
       ),
     }));
   },
 
-  clearDirective: (lineageId: string, type: 'sticky' | 'oneshot') => {
-    if (type === 'sticky') {
+  removeDirective: (
+    lineageId: string,
+    type: "sticky" | "oneshot",
+    index: number
+  ) => {
+    const lineage = get().lineages.find((l) => l.id === lineageId);
+    if (!lineage) return;
+
+    const currentDirectives =
+      type === "sticky"
+        ? lineage.directiveSticky || []
+        : lineage.directiveOneshot || [];
+
+    const newDirectives = currentDirectives.filter((_, i) => i !== index);
+
+    if (type === "sticky") {
+      queries.updateLineage(lineageId, { directiveSticky: newDirectives });
+    } else {
+      queries.updateLineage(lineageId, { directiveOneshot: newDirectives });
+    }
+
+    set((state) => ({
+      lineages: state.lineages.map((l) =>
+        l.id === lineageId
+          ? {
+              ...l,
+              directiveSticky:
+                type === "sticky" ? newDirectives : l.directiveSticky,
+              directiveOneshot:
+                type === "oneshot" ? newDirectives : l.directiveOneshot,
+            }
+          : l
+      ),
+    }));
+  },
+
+  clearDirectives: (lineageId: string, type: "sticky" | "oneshot") => {
+    if (type === "sticky") {
       queries.updateLineage(lineageId, { directiveSticky: null });
     } else {
       queries.updateLineage(lineageId, { directiveOneshot: null });
@@ -347,8 +490,8 @@ export const useLineageStore = create<LineageState>((set, get) => ({
         l.id === lineageId
           ? {
               ...l,
-              directiveSticky: type === 'sticky' ? null : l.directiveSticky,
-              directiveOneshot: type === 'oneshot' ? null : l.directiveOneshot,
+              directiveSticky: type === "sticky" ? null : l.directiveSticky,
+              directiveOneshot: type === "oneshot" ? null : l.directiveOneshot,
             }
           : l
       ),
@@ -376,7 +519,11 @@ export const useLineageStore = create<LineageState>((set, get) => ({
 
           // Generate new artifact
           const content = await generateArtifact(lineage, nextCycle);
-          const artifact = queries.createArtifact(lineage.id, nextCycle, content);
+          const artifact = queries.createArtifact(
+            lineage.id,
+            nextCycle,
+            content
+          );
 
           return {
             ...lineage,
@@ -394,7 +541,12 @@ export const useLineageStore = create<LineageState>((set, get) => ({
     }
   },
 
-  regenerateUnlockedWithAgents: async (sessionId, need, evolveAgentFn, getAgentForLineage) => {
+  regenerateUnlockedWithAgents: async (
+    sessionId,
+    need,
+    evolveAgentFn,
+    getAgentForLineage
+  ) => {
     const unlockedLineages = get().getUnlockedLineages();
     if (unlockedLineages.length === 0) return;
 
@@ -437,21 +589,30 @@ export const useLineageStore = create<LineageState>((set, get) => ({
             cycle: nextCycle,
             createRecords: true,
           };
-          const result = await executeAgentWithFallback(evolvedAgent, testInput, executionOptions);
+          const result = await executeAgentWithFallback(
+            evolvedAgent,
+            testInput,
+            executionOptions
+          );
 
           // Create artifact with execution output and span metadata
-          const artifact = queries.createArtifact(lineage.id, nextCycle, result.output, {
-            agentId: evolvedAgent.id,
-            agentVersion: evolvedAgent.version,
-            executionSuccess: result.success,
-            error: result.error,
-            executionTimeMs: result.metadata.executionTimeMs,
-            inputUsed: result.metadata.inputUsed,
-            rolloutId: result.metadata.rolloutId,
-            attemptId: result.metadata.attemptId,
-            stepsExecuted: result.metadata.stepsExecuted,
-            spanCount: result.spans?.length ?? 0,
-          });
+          const artifact = queries.createArtifact(
+            lineage.id,
+            nextCycle,
+            result.output,
+            {
+              agentId: evolvedAgent.id,
+              agentVersion: evolvedAgent.version,
+              executionSuccess: result.success,
+              error: result.error,
+              executionTimeMs: result.metadata.executionTimeMs,
+              inputUsed: result.metadata.inputUsed,
+              rolloutId: result.metadata.rolloutId,
+              attemptId: result.metadata.attemptId,
+              stepsExecuted: result.metadata.stepsExecuted,
+              spanCount: result.spans?.length ?? 0,
+            }
+          );
 
           return {
             ...lineage,
@@ -520,7 +681,9 @@ export const useLineageStore = create<LineageState>((set, get) => ({
             currentExecutionSpans = currentExecution.spans ?? [];
           } catch {
             // If execution fails, continue without spans
-            console.warn(`[Pipeline] Could not get spans for lineage ${lineage.id}`);
+            console.warn(
+              `[Pipeline] Could not get spans for lineage ${lineage.id}`
+            );
           }
 
           // Run the full evolution pipeline with spans for trajectory credit assignment
@@ -540,7 +703,9 @@ export const useLineageStore = create<LineageState>((set, get) => ({
 
           console.log(`[Pipeline] ${lineage.label}: ${pipelineResult.summary}`);
           if (currentExecutionSpans.length > 1) {
-            console.log(`[Pipeline] ${lineage.label}: Used trajectory credit (${currentExecutionSpans.length} spans)`);
+            console.log(
+              `[Pipeline] ${lineage.label}: Used trajectory credit (${currentExecutionSpans.length} spans)`
+            );
           }
 
           // Save evolved agent to database
@@ -559,19 +724,24 @@ export const useLineageStore = create<LineageState>((set, get) => ({
           );
 
           // Create artifact with execution output and full metadata
-          const artifact = queries.createArtifact(lineage.id, nextCycle, result.output, {
-            agentId: pipelineResult.evolvedAgent.id,
-            agentVersion: pipelineResult.evolvedAgent.version,
-            executionSuccess: result.success,
-            error: result.error,
-            executionTimeMs: result.metadata.executionTimeMs,
-            inputUsed: result.metadata.inputUsed,
-            evolutionRecordId: pipelineResult.evolutionRecord.id,
-            rolloutId: result.metadata.rolloutId,
-            attemptId: result.metadata.attemptId,
-            stepsExecuted: result.metadata.stepsExecuted,
-            spanCount: result.spans?.length ?? 0,
-          });
+          const artifact = queries.createArtifact(
+            lineage.id,
+            nextCycle,
+            result.output,
+            {
+              agentId: pipelineResult.evolvedAgent.id,
+              agentVersion: pipelineResult.evolvedAgent.version,
+              executionSuccess: result.success,
+              error: result.error,
+              executionTimeMs: result.metadata.executionTimeMs,
+              inputUsed: result.metadata.inputUsed,
+              evolutionRecordId: pipelineResult.evolutionRecord.id,
+              rolloutId: result.metadata.rolloutId,
+              attemptId: result.metadata.attemptId,
+              stepsExecuted: result.metadata.stepsExecuted,
+              spanCount: result.spans?.length ?? 0,
+            }
+          );
 
           return {
             ...lineage,
@@ -585,7 +755,7 @@ export const useLineageStore = create<LineageState>((set, get) => ({
 
       set({ lineages: updatedLineages, isRegenerating: false });
     } catch (e) {
-      console.error('[Pipeline] Evolution failed:', e);
+      console.error("[Pipeline] Evolution failed:", e);
       set({ error: (e as Error).message, isRegenerating: false });
     }
   },
@@ -631,21 +801,30 @@ export const useLineageStore = create<LineageState>((set, get) => ({
         cycle: nextCycle,
         createRecords: true,
       };
-      const result = await executeAgentWithFallback(currentAgent, testInput, executionOptions);
+      const result = await executeAgentWithFallback(
+        currentAgent,
+        testInput,
+        executionOptions
+      );
 
       // Create artifact with same agent version
-      const artifact = queries.createArtifact(lineage.id, nextCycle, result.output, {
-        agentId: currentAgent.id,
-        agentVersion: currentAgent.version,
-        executionSuccess: result.success,
-        error: result.error,
-        executionTimeMs: result.metadata.executionTimeMs,
-        inputUsed: result.metadata.inputUsed,
-        rolloutId: result.metadata.rolloutId,
-        attemptId: result.metadata.attemptId,
-        stepsExecuted: result.metadata.stepsExecuted,
-        spanCount: result.spans?.length ?? 0,
-      });
+      const artifact = queries.createArtifact(
+        lineage.id,
+        nextCycle,
+        result.output,
+        {
+          agentId: currentAgent.id,
+          agentVersion: currentAgent.version,
+          executionSuccess: result.success,
+          error: result.error,
+          executionTimeMs: result.metadata.executionTimeMs,
+          inputUsed: result.metadata.inputUsed,
+          rolloutId: result.metadata.rolloutId,
+          attemptId: result.metadata.attemptId,
+          stepsExecuted: result.metadata.stepsExecuted,
+          spanCount: result.spans?.length ?? 0,
+        }
+      );
 
       // Update only the affected lineage
       set((state) => ({

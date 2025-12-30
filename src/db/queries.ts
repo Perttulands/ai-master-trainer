@@ -53,6 +53,7 @@ export function createSession(input: CreateSessionInput): Session {
     name: input.name,
     need: input.need,
     constraints: input.constraints || null,
+    rubric: input.rubric || null,
     inputPrompt: input.inputPrompt || null,
     initialAgentCount,
     createdAt: now,
@@ -60,15 +61,17 @@ export function createSession(input: CreateSessionInput): Session {
   };
 
   db.run(
-    "INSERT INTO sessions (id, name, need, constraints, input_prompt, mode, initial_agent_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO sessions (id, name, need, constraints, rubric, input_prompt, mode, initial_agent_count, trainer_messages, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     [
       session.id,
       session.name,
       session.need,
       session.constraints,
+      session.rubric,
       session.inputPrompt,
       "training",
       session.initialAgentCount,
+      "[]", // Initial empty trainer messages
       session.createdAt,
       session.updatedAt,
     ]
@@ -85,7 +88,7 @@ export function createSession(input: CreateSessionInput): Session {
 export function getSession(id: string): Session | null {
   const db = getDatabase();
   const result = db.exec(
-    "SELECT id, name, need, constraints, input_prompt, initial_agent_count, created_at, updated_at FROM sessions WHERE id = ?",
+    "SELECT id, name, need, constraints, rubric, input_prompt, initial_agent_count, trainer_messages, created_at, updated_at FROM sessions WHERE id = ?",
     [id]
   );
   if (result.length === 0 || result[0].values.length === 0) return null;
@@ -96,17 +99,19 @@ export function getSession(id: string): Session | null {
     name: row[1] as string,
     need: row[2] as string,
     constraints: row[3] as string | null,
-    inputPrompt: row[4] as string | null,
-    initialAgentCount: (row[5] as number) ?? 4,
-    createdAt: row[6] as number,
-    updatedAt: row[7] as number,
+    rubric: row[4] as string | null,
+    inputPrompt: row[5] as string | null,
+    initialAgentCount: (row[6] as number) ?? 4,
+    trainerMessages: row[7] ? JSON.parse(row[7] as string) : [],
+    createdAt: row[8] as number,
+    updatedAt: row[9] as number,
   };
 }
 
 export function getAllSessions(): Session[] {
   const db = getDatabase();
   const result = db.exec(
-    "SELECT id, name, need, constraints, input_prompt, initial_agent_count, created_at, updated_at FROM sessions ORDER BY updated_at DESC"
+    "SELECT id, name, need, constraints, rubric, input_prompt, initial_agent_count, trainer_messages, created_at, updated_at FROM sessions ORDER BY updated_at DESC"
   );
   if (result.length === 0) return [];
 
@@ -115,17 +120,22 @@ export function getAllSessions(): Session[] {
     name: row[1] as string,
     need: row[2] as string,
     constraints: row[3] as string | null,
-    inputPrompt: row[4] as string | null,
-    initialAgentCount: (row[5] as number) ?? 4,
-    createdAt: row[6] as number,
-    updatedAt: row[7] as number,
+    rubric: row[4] as string | null,
+    inputPrompt: row[5] as string | null,
+    initialAgentCount: (row[6] as number) ?? 4,
+    trainerMessages: row[7] ? JSON.parse(row[7] as string) : [],
+    createdAt: row[8] as number,
+    updatedAt: row[9] as number,
   }));
 }
 
 export function updateSession(
   id: string,
   updates: Partial<
-    Pick<Session, "name" | "need" | "constraints" | "inputPrompt">
+    Pick<
+      Session,
+      "name" | "need" | "constraints" | "rubric" | "inputPrompt" | "trainerMessages"
+    >
   >
 ): void {
   const db = getDatabase();
@@ -145,9 +155,17 @@ export function updateSession(
     sets.push("constraints = ?");
     values.push(updates.constraints);
   }
+  if (updates.rubric !== undefined) {
+    sets.push("rubric = ?");
+    values.push(updates.rubric);
+  }
   if (updates.inputPrompt !== undefined) {
     sets.push("input_prompt = ?");
     values.push(updates.inputPrompt);
+  }
+  if (updates.trainerMessages !== undefined) {
+    sets.push("trainer_messages = ?");
+    values.push(JSON.stringify(updates.trainerMessages));
   }
 
   values.push(id);
@@ -189,8 +207,10 @@ export function createLineage(
       lineage.label,
       lineage.strategyTag,
       lineage.isLocked ? 1 : 0,
-      lineage.directiveSticky,
-      lineage.directiveOneshot,
+      lineage.directiveSticky ? JSON.stringify(lineage.directiveSticky) : null,
+      lineage.directiveOneshot
+        ? JSON.stringify(lineage.directiveOneshot)
+        : null,
       lineage.createdAt,
     ]
   );
@@ -207,16 +227,29 @@ export function getLineagesBySession(sessionId: string): Lineage[] {
   );
   if (result.length === 0) return [];
 
-  return result[0].values.map((row: SqlRow) => ({
-    id: row[0] as string,
-    sessionId: row[1] as string,
-    label: row[2] as LineageLabel,
-    strategyTag: row[3] as string | null,
-    isLocked: (row[4] as number) === 1,
-    directiveSticky: row[5] as string | null,
-    directiveOneshot: row[6] as string | null,
-    createdAt: row[7] as number,
-  }));
+  return result[0].values.map((row: SqlRow) => {
+    // Helper to safely parse directives which might be stored as plain text (legacy) or JSON array
+    const parseDirective = (val: string | null): string[] | null => {
+      if (!val) return null;
+      try {
+        const parsed = JSON.parse(val);
+        return Array.isArray(parsed) ? parsed : [val];
+      } catch {
+        return [val];
+      }
+    };
+
+    return {
+      id: row[0] as string,
+      sessionId: row[1] as string,
+      label: row[2] as LineageLabel,
+      strategyTag: row[3] as string | null,
+      isLocked: (row[4] as number) === 1,
+      directiveSticky: parseDirective(row[5] as string | null),
+      directiveOneshot: parseDirective(row[6] as string | null),
+      createdAt: row[7] as number,
+    };
+  });
 }
 
 export function updateLineage(
@@ -248,11 +281,15 @@ export function updateLineage(
   }
   if (updates.directiveSticky !== undefined) {
     sets.push("directive_sticky = ?");
-    values.push(updates.directiveSticky);
+    values.push(
+      updates.directiveSticky ? JSON.stringify(updates.directiveSticky) : null
+    );
   }
   if (updates.directiveOneshot !== undefined) {
     sets.push("directive_oneshot = ?");
-    values.push(updates.directiveOneshot);
+    values.push(
+      updates.directiveOneshot ? JSON.stringify(updates.directiveOneshot) : null
+    );
   }
 
   if (sets.length === 0) return;
@@ -946,7 +983,10 @@ function parseAttemptRow(row: SqlRow): Attempt {
 
 // ============ Execution Spans ============
 
-export function createSpan(input: CreateSpanInput): ExecutionSpan {
+export function createSpan(
+  input: CreateSpanInput,
+  persist: boolean = true
+): ExecutionSpan {
   const db = getDatabase();
   const now = Date.now();
   const span: ExecutionSpan = {
@@ -969,31 +1009,33 @@ export function createSpan(input: CreateSpanInput): ExecutionSpan {
     createdAt: now,
   };
 
-  db.run(
-    `INSERT INTO execution_spans (id, attempt_id, parent_span_id, sequence, type, input, output, model_id, prompt_tokens, completion_tokens, tool_name, tool_args, tool_result, tool_error, duration_ms, estimated_cost, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      span.id,
-      span.attemptId,
-      span.parentSpanId ?? null,
-      span.sequence,
-      span.type,
-      span.input,
-      span.output,
-      span.modelId ?? null,
-      span.promptTokens ?? null,
-      span.completionTokens ?? null,
-      span.toolName ?? null,
-      span.toolArgs ? JSON.stringify(span.toolArgs) : null,
-      span.toolResult ? JSON.stringify(span.toolResult) : null,
-      span.toolError ?? null,
-      span.durationMs,
-      span.estimatedCost ?? null,
-      span.createdAt,
-    ]
-  );
+  if (persist) {
+    db.run(
+      `INSERT INTO execution_spans (id, attempt_id, parent_span_id, sequence, type, input, output, model_id, prompt_tokens, completion_tokens, tool_name, tool_args, tool_result, tool_error, duration_ms, estimated_cost, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        span.id,
+        span.attemptId,
+        span.parentSpanId ?? null,
+        span.sequence,
+        span.type,
+        span.input,
+        span.output,
+        span.modelId ?? null,
+        span.promptTokens ?? null,
+        span.completionTokens ?? null,
+        span.toolName ?? null,
+        span.toolArgs ? JSON.stringify(span.toolArgs) : null,
+        span.toolResult ? JSON.stringify(span.toolResult) : null,
+        span.toolError ?? null,
+        span.durationMs,
+        span.estimatedCost ?? null,
+        span.createdAt,
+      ]
+    );
 
-  saveDatabase();
+    saveDatabase();
+  }
   return span;
 }
 
