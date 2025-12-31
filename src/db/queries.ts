@@ -53,7 +53,6 @@ export function createSession(input: CreateSessionInput): Session {
     name: input.name,
     need: input.need,
     constraints: input.constraints || null,
-    rubric: input.rubric || null,
     inputPrompt: input.inputPrompt || null,
     initialAgentCount,
     createdAt: now,
@@ -61,13 +60,12 @@ export function createSession(input: CreateSessionInput): Session {
   };
 
   db.run(
-    "INSERT INTO sessions (id, name, need, constraints, rubric, input_prompt, mode, initial_agent_count, trainer_messages, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO sessions (id, name, need, constraints, input_prompt, mode, initial_agent_count, trainer_messages, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     [
       session.id,
       session.name,
       session.need,
       session.constraints,
-      session.rubric,
       session.inputPrompt,
       "training",
       session.initialAgentCount,
@@ -88,7 +86,7 @@ export function createSession(input: CreateSessionInput): Session {
 export function getSession(id: string): Session | null {
   const db = getDatabase();
   const result = db.exec(
-    "SELECT id, name, need, constraints, rubric, input_prompt, initial_agent_count, trainer_messages, created_at, updated_at FROM sessions WHERE id = ?",
+    "SELECT id, name, need, constraints, input_prompt, initial_agent_count, trainer_messages, created_at, updated_at FROM sessions WHERE id = ?",
     [id]
   );
   if (result.length === 0 || result[0].values.length === 0) return null;
@@ -99,19 +97,18 @@ export function getSession(id: string): Session | null {
     name: row[1] as string,
     need: row[2] as string,
     constraints: row[3] as string | null,
-    rubric: row[4] as string | null,
-    inputPrompt: row[5] as string | null,
-    initialAgentCount: (row[6] as number) ?? 4,
-    trainerMessages: row[7] ? JSON.parse(row[7] as string) : [],
-    createdAt: row[8] as number,
-    updatedAt: row[9] as number,
+    inputPrompt: row[4] as string | null,
+    initialAgentCount: (row[5] as number) ?? 4,
+    trainerMessages: row[6] ? JSON.parse(row[6] as string) : [],
+    createdAt: row[7] as number,
+    updatedAt: row[8] as number,
   };
 }
 
 export function getAllSessions(): Session[] {
   const db = getDatabase();
   const result = db.exec(
-    "SELECT id, name, need, constraints, rubric, input_prompt, initial_agent_count, trainer_messages, created_at, updated_at FROM sessions ORDER BY updated_at DESC"
+    "SELECT id, name, need, constraints, input_prompt, initial_agent_count, trainer_messages, created_at, updated_at FROM sessions ORDER BY updated_at DESC"
   );
   if (result.length === 0) return [];
 
@@ -120,12 +117,11 @@ export function getAllSessions(): Session[] {
     name: row[1] as string,
     need: row[2] as string,
     constraints: row[3] as string | null,
-    rubric: row[4] as string | null,
-    inputPrompt: row[5] as string | null,
-    initialAgentCount: (row[6] as number) ?? 4,
-    trainerMessages: row[7] ? JSON.parse(row[7] as string) : [],
-    createdAt: row[8] as number,
-    updatedAt: row[9] as number,
+    inputPrompt: row[4] as string | null,
+    initialAgentCount: (row[5] as number) ?? 4,
+    trainerMessages: row[6] ? JSON.parse(row[6] as string) : [],
+    createdAt: row[7] as number,
+    updatedAt: row[8] as number,
   }));
 }
 
@@ -134,7 +130,7 @@ export function updateSession(
   updates: Partial<
     Pick<
       Session,
-      "name" | "need" | "constraints" | "rubric" | "inputPrompt" | "trainerMessages"
+      "name" | "need" | "constraints" | "inputPrompt" | "trainerMessages"
     >
   >
 ): void {
@@ -154,10 +150,6 @@ export function updateSession(
   if (updates.constraints !== undefined) {
     sets.push("constraints = ?");
     values.push(updates.constraints);
-  }
-  if (updates.rubric !== undefined) {
-    sets.push("rubric = ?");
-    values.push(updates.rubric);
   }
   if (updates.inputPrompt !== undefined) {
     sets.push("input_prompt = ?");

@@ -33,8 +33,7 @@ describe("Session Queries Schema Robustness", () => {
         promoted_from TEXT,
         input_prompt TEXT,
         initial_agent_count INTEGER NOT NULL DEFAULT 4,
-        trainer_messages TEXT,
-        rubric TEXT
+        trainer_messages TEXT
       );
     `);
 

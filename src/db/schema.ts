@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 9;
 
 export const CREATE_TABLES_SQL = `
 -- Sessions
@@ -7,11 +7,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   name TEXT NOT NULL,
   need TEXT NOT NULL,
   constraints TEXT,
-  rubric TEXT,
   input_prompt TEXT,
   mode TEXT NOT NULL DEFAULT 'training',
   promoted_from TEXT,
   initial_agent_count INTEGER NOT NULL DEFAULT 4,
+  trainer_messages TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS artifacts (
   cycle INTEGER NOT NULL,
   content TEXT NOT NULL,
   metadata TEXT,
+  agent_version INTEGER DEFAULT 1,
+  input TEXT,
+  tools_used TEXT,
+  tokens_used INTEGER,
+  latency_ms INTEGER,
   created_at INTEGER NOT NULL,
   FOREIGN KEY (lineage_id) REFERENCES lineages(id) ON DELETE CASCADE
 );
@@ -627,14 +632,6 @@ ALTER TABLE sessions ADD COLUMN initial_agent_count INTEGER NOT NULL DEFAULT 4;
     sql: `
 -- Add trainer_messages to sessions for chat persistence
 ALTER TABLE sessions ADD COLUMN trainer_messages TEXT;
-`,
-  },
-  {
-    fromVersion: 9,
-    toVersion: 10,
-    sql: `
--- Add rubric to sessions for evaluation criteria
-ALTER TABLE sessions ADD COLUMN rubric TEXT;
 `,
   },
 ];

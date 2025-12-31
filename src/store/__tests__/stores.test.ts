@@ -373,7 +373,6 @@ describe("useSessionStore", () => {
           initialAgentCount: 4,
           createdAt: 1,
           updatedAt: 1,
-          rubric: null,
         },
         {
           id: "2",
@@ -384,7 +383,6 @@ describe("useSessionStore", () => {
           initialAgentCount: 4,
           createdAt: 2,
           updatedAt: 2,
-          rubric: null,
         },
       ];
       vi.mocked(queries.getAllSessions).mockReturnValue(mockSessions);
@@ -421,7 +419,6 @@ describe("useSessionStore", () => {
         initialAgentCount: 4,
         createdAt: 1,
         updatedAt: 1,
-        rubric: null,
       };
       vi.mocked(queries.getSession).mockReturnValue(mockSession);
 
@@ -480,7 +477,6 @@ describe("useSessionStore", () => {
         initialAgentCount: 4,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        rubric: null,
       };
 
       act(() => {

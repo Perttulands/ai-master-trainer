@@ -6,45 +6,6 @@ import { generateId } from "../utils/id";
 import type { TrainerAction } from "../types";
 
 /**
- * Generate an evaluation rubric based on user need and constraints
- * The rubric helps users score agent outputs consistently
- */
-export async function generateRubric(
-  need: string,
-  constraints?: string
-): Promise<string> {
-  if (!isLLMConfigured()) {
-    throw new Error(
-      "LLM not configured. Set VITE_LITELLM_API_BASE and VITE_LITELLM_API_KEY to generate rubrics."
-    );
-  }
-
-  const systemPrompt = `You are an expert at creating evaluation rubrics for AI outputs.
-
-Given a user's need (what kind of agent they want) and optional constraints, create a practical evaluation rubric that helps the user score outputs 1-10.
-
-The rubric should:
-1. List 3-5 key criteria specific to this task
-2. Be concise but actionable
-3. Help distinguish between good (8-10), okay (5-7), and poor (1-4) outputs
-4. Focus on what matters most for this specific need
-
-Format as a bullet list. Output ONLY the rubric criteria - no headers, explanations, or meta-commentary.`;
-
-  let userPrompt = `Need: "${need}"`;
-  if (constraints) {
-    userPrompt += `\nConstraints: ${constraints}`;
-  }
-  userPrompt += `\n\nCreate the evaluation rubric:`;
-
-  const result = await generateWithSystem(systemPrompt, userPrompt, {
-    maxTokens: 512,
-    temperature: 0.7,
-  });
-  return result.trim();
-}
-
-/**
  * Propose an initial input prompt for testing agents
  * The input prompt is the actual task/query that agents will respond to
  */

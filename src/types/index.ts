@@ -3,8 +3,6 @@ export interface Session {
   name: string;
   need: string;
   constraints: string | null;
-  /** Evaluation rubric for scoring agent outputs */
-  rubric: string | null;
   /** The input prompt to send to agents (the actual task/query they should respond to) */
   inputPrompt: string | null;
   /** Initial number of agents (1, 2, or 4) */
@@ -116,8 +114,6 @@ export interface CreateSessionInput {
   name: string;
   need: string;
   constraints?: string;
-  /** Evaluation rubric for scoring agent outputs */
-  rubric?: string;
   /** The input prompt to send to agents (the actual task/query they should respond to) */
   inputPrompt?: string;
   /** Initial number of agents (1, 2, or 4) - defaults to 4 */
