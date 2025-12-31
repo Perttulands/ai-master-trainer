@@ -6,3 +6,4 @@ export { Modal } from './Modal';
 export { Badge } from './Badge';
 export { ScoreSlider } from './ScoreSlider';
 export { ModelSelector } from './ModelSelector';
+export { ApiKeyModal } from './ApiKeyModal';

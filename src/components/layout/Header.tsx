@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, History, Download, RefreshCw, Zap, ZapOff } from 'lucide-react';
-import { Button, ModelSelector } from '../ui';
+import { ArrowLeft, History, Download, RefreshCw, Zap, ZapOff, Key } from 'lucide-react';
+import { Button, ModelSelector, ApiKeyModal } from '../ui';
 import type { Session } from '../../types';
 import { isLLMConfigured } from '../../api/llm';
+import { useModelStore } from '../../store/model';
 import { cn } from '../../utils/cn';
 
 interface HeaderProps {
@@ -21,6 +23,11 @@ export function Header({
   onExport,
 }: HeaderProps) {
   const navigate = useNavigate();
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+  
+  // Subscribe to store updates so we re-render when key changes
+  useModelStore((state) => state.apiKey);
+  
   const llmConnected = isLLMConfigured();
 
   return (
@@ -48,11 +55,21 @@ export function Header({
                 {llmConnected ? <Zap className="w-3 h-3" /> : <ZapOff className="w-3 h-3" />}
                 {llmConnected ? 'LLM Connected' : 'Mock Mode'}
               </div>
-              {llmConnected && (
+              {llmConnected ? (
                 <div className="flex items-center gap-2">
                   <ModelSelector mode="trainer" />
                   <ModelSelector mode="agent" />
                 </div>
+              ) : (
+                <Button 
+                  variant="primary" 
+                  size="sm" 
+                  onClick={() => setIsApiKeyModalOpen(true)}
+                  className="bg-amber-600 hover:bg-amber-700 text-white border-amber-700"
+                >
+                  <Key className="w-4 h-4 mr-2" />
+                  Set API Key
+                </Button>
               )}
             </>
           )}
@@ -66,11 +83,21 @@ export function Header({
 
         {session && (
           <div className="flex items-center gap-3">
-            {llmConnected && (
+            {llmConnected ? (
               <div className="flex items-center gap-2">
                 <ModelSelector mode="trainer" />
                 <ModelSelector mode="agent" />
               </div>
+            ) : (
+              <Button 
+                variant="primary" 
+                size="sm" 
+                onClick={() => setIsApiKeyModalOpen(true)}
+                className="bg-amber-600 hover:bg-amber-700 text-white border-amber-700"
+              >
+                <Key className="w-4 h-4 mr-2" />
+                Set API Key
+              </Button>
             )}
             <div className="h-6 w-px bg-gray-200" />
             <Button
@@ -105,6 +132,11 @@ export function Header({
           </div>
         )}
       </div>
+
+      <ApiKeyModal 
+        isOpen={isApiKeyModalOpen} 
+        onClose={() => setIsApiKeyModalOpen(false)} 
+      />
     </header>
   );
 }
