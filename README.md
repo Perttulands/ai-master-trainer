@@ -1,8 +1,59 @@
 # Training Camp
 
-Lineage-Based Interactive Training for AI Agents, Agentic Systems, and AI Skills.
+**Train AI agents without writing code.** Just describe what you need, evaluate outputs, and let the system evolve better agents for you.
 
-## Quick Start with Dev Container
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+---
+
+## The Problem
+
+Building effective AI agents requires specialized expertise: prompt engineering, tool design, orchestration patterns. **Domain experts know exactly what "good" looks like** but can't translate that knowledge into agent configuration.
+
+Training Camp removes this bottleneck.
+
+## How It Works
+
+You only need to do two things:
+
+1. **Describe what you want** - "Summarize emails and highlight action items"
+2. **Score the outputs** - Rate results 1-10, add feedback like "make it shorter"
+
+The **Master Trainer** handles everything else: generating agents, creating variations, evolving configurations based on your feedback.
+
+```
+Your Need → AI Agents → Outputs → Your Scores → Better Agents → Better Outputs
+                              ↑__________________________|
+```
+
+## Two Modes, One Goal
+
+### Quick Start (Exploration)
+*"Does this concept even work?"*
+
+- Single agent, immediate generation
+- Freeform feedback, fast iteration
+- Validate ideas in seconds
+- Promote to full training when ready
+
+### Full Training (Optimization)
+*"Which approach is best?"*
+
+- 4 parallel agent lineages (A/B/C/D)
+- Comparative scoring (1-10)
+- Lock winners, regenerate the rest
+- Systematic evolution toward your ideal
+
+## Key Features
+
+- **Zero Configuration** - No prompts to write, no tools to configure
+- **Lineage-Based Evolution** - Agents improve through your evaluations
+- **Lock & Explore** - Preserve winning agents while exploring alternatives
+- **Directives** - Guide specific lineages ("use bullet points", "be more formal")
+- **Export Ready** - Download agents as JSON, Python, or TypeScript
+- **Multi-Model Support** - Claude, GPT, Gemini via LiteLLM
+
+## Quick Start
 
 ### Prerequisites
 
@@ -13,91 +64,104 @@ Lineage-Based Interactive Training for AI Agents, Agentic Systems, and AI Skills
 
 1. **Clone and open in VS Code**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/Perttulands/ai-master-trainer.git
    cd training-camp
    code .
    ```
 
 2. **Open in Dev Container**
    - Press `F1` → "Dev Containers: Reopen in Container"
-   - Or click the green button in the bottom-left corner → "Reopen in Container"
-   - Wait for the container to build (first time takes a few minutes)
+   - Wait for the container to build (~2-3 minutes first time)
 
-3. **Configure environment**
+3. **Start the app**
    ```bash
-   # Copy the example env file (already done, but update with your keys)
-   cp .env.example .env
-   # Edit .env and add your LiteLLM credentials (VITE_LITELLM_API_BASE, VITE_LITELLM_API_KEY)
-   ```
-
-4. **Authenticate Claude Code (first time only)**
-   ```bash
-   claude login
-   ```
-   Your credentials will persist across container rebuilds.
-
-5. **Start development**
-   ```bash
-   pnpm install
    pnpm dev
    ```
 
-## Using Claude Code in the Container
+4. **Configure your LLM** (in the app)
+   - Click "Configure LLM" in the header
+   - Enter your LiteLLM proxy URL and API key
+   - Or use Mock Mode to explore without an API key
 
-Once authenticated, you can use Claude Code as an AI agent to work on the codebase:
-
-```bash
-# Start Claude Code CLI
-claude
-
-# Or run with a specific prompt
-claude "Create the initial React app structure with TypeScript"
-```
-
-## Project Structure
+## Architecture
 
 ```
-training-camp/
-├── .devcontainer/       # Dev container configuration
-│   ├── devcontainer.json
-│   ├── docker-compose.yml
-│   └── Dockerfile
-├── src/                 # Source code (to be created)
-├── .env                 # Environment variables (gitignored)
-├── .env.example         # Environment template
-├── package.json         # Node.js dependencies
-└── specifications.md    # Product requirements
+┌─────────────────────────────────────────────────────────────┐
+│                     Training Camp UI                        │
+│   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐       │
+│   │Lineage A│  │Lineage B│  │Lineage C│  │Lineage D│       │
+│   └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘       │
+│        │            │            │            │             │
+│        └────────────┴─────┬──────┴────────────┘             │
+│                           │                                  │
+│                    ┌──────▼──────┐                          │
+│                    │Master Trainer│  ← Evolves agents       │
+│                    └──────┬──────┘    based on your scores  │
+│                           │                                  │
+│                    ┌──────▼──────┐                          │
+│                    │   LiteLLM   │  ← Multi-model gateway   │
+│                    └─────────────┘                          │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Tech Stack
+**Tech Stack:**
+- React + TypeScript + Vite
+- Tailwind CSS + Zustand
+- SQLite (in-browser via sql.js)
+- LiteLLM (Claude, GPT, Gemini support)
 
-- **Frontend**: React + TypeScript + Vite
-- **Database**: SQLite (in-browser via sql.js)
-- **LLM Runtime**: LiteLLM gateway (multi-model support: Claude, GPT, Gemini)
-- **Package Manager**: pnpm
+## Example Workflow
+
+```
+1. Start Quick Start
+   └→ "Create weekly team update emails from project notes"
+
+2. View first output
+   └→ "Too formal, needs more personality"
+
+3. Iterate
+   └→ Agent evolves, new output appears
+
+4. Satisfied? Promote to Training
+   └→ 4 lineages spawn with different styles
+
+5. Score outputs 1-10
+   └→ Lineage A: 8 (professional), Lineage C: 9 (engaging)
+
+6. Lock Lineage C, regenerate others
+   └→ System evolves B and D to compete
+
+7. Export winning agent
+   └→ Download as TypeScript, deploy anywhere
+```
 
 ## Development
 
-### Available Scripts
-
 ```bash
-pnpm dev      # Start dev server (port 5173)
-pnpm build    # Build for production
-pnpm preview  # Preview production build
-pnpm lint     # Run ESLint
-pnpm format   # Format with Prettier
+pnpm dev          # Start dev server (port 5173)
+pnpm build        # Production build
+pnpm test         # Run tests
+pnpm lint         # Lint code
 ```
 
-### Ports
+## Documentation
 
-- `5173` - Vite dev server
-- `3000` - Reserved for additional services
+- [Product Requirements](docs/PRD.md) - Full product specification
+- [Architecture](docs/ARCHITECTURE.md) - Technical design
+- [Agent Evolution](docs/SPEC-agent-evolution.md) - How agents improve
 
-## Running Multiple Containers
+## Philosophy
 
-Each container is fully isolated with its own:
-- Workspace
-- Claude Code credentials (named volume)
-- Node modules
+**No mocks. No fallbacks. Real or nothing.**
 
-To run multiple instances, clone the project to different directories and open each in its own dev container.
+Training Camp is built on the principle that training signal quality matters. If an LLM call fails, you see the error. If a feature isn't implemented, it throws. Half-working features with fake data are worse than no feature at all.
+
+## License
+
+MIT
+
+---
+
+<p align="center">
+  <strong>Stop engineering prompts. Start training agents.</strong>
+</p>
