@@ -99,9 +99,11 @@ const DEFAULT_MODEL =
 
 interface ModelState {
   apiKey: string | null;
+  apiBaseUrl: string | null;
   trainerModelId: string;
   agentModelId: string;
   setApiKey: (key: string | null) => void;
+  setApiBaseUrl: (url: string | null) => void;
   setTrainerModel: (modelId: string) => void;
   setAgentModel: (modelId: string) => void;
   getTrainerModel: () => ModelInfo | undefined;
@@ -112,11 +114,16 @@ export const useModelStore = create<ModelState>()(
   persist(
     (set, get) => ({
       apiKey: null,
+      apiBaseUrl: null,
       trainerModelId: DEFAULT_MODEL,
       agentModelId: DEFAULT_MODEL,
 
       setApiKey: (key: string | null) => {
         set({ apiKey: key });
+      },
+
+      setApiBaseUrl: (url: string | null) => {
+        set({ apiBaseUrl: url });
       },
 
       setTrainerModel: (modelId: string) => {
@@ -137,13 +144,14 @@ export const useModelStore = create<ModelState>()(
     }),
     {
       name: "training-camp-model",
-      version: 2,
+      version: 3,
       migrate: (persistedState: unknown, version: number) => {
         if (version === 0) {
           // Migration from old single-model format
           const oldState = persistedState as { selectedModelId?: string };
           return {
             apiKey: null,
+            apiBaseUrl: null,
             trainerModelId: oldState.selectedModelId || DEFAULT_MODEL,
             agentModelId: oldState.selectedModelId || DEFAULT_MODEL,
           };
@@ -154,6 +162,15 @@ export const useModelStore = create<ModelState>()(
           return {
             ...oldState,
             apiKey: null,
+            apiBaseUrl: null,
+          };
+        }
+        if (version === 2) {
+          // Migration from v2 (no apiBaseUrl)
+          const oldState = persistedState as ModelState;
+          return {
+            ...oldState,
+            apiBaseUrl: null,
           };
         }
         return persistedState as ModelState;

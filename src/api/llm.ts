@@ -72,13 +72,24 @@ interface ChatOptions {
 }
 
 class LLMClient {
-  private baseUrl: string;
   private defaultModel: string;
 
   constructor() {
-    this.baseUrl = import.meta.env.VITE_LITELLM_API_BASE || "";
     this.defaultModel =
       import.meta.env.VITE_LITELLM_MODEL || "anthropic/claude-4-5-sonnet-aws";
+  }
+
+  private getBaseUrl(): string | null {
+    // 1. Try store (user provided)
+    try {
+      const state = useModelStore.getState();
+      if (state.apiBaseUrl) return state.apiBaseUrl;
+    } catch {
+      // Store not initialized
+    }
+
+    // 2. Try env var (dev/deployment provided)
+    return import.meta.env.VITE_LITELLM_API_BASE || null;
   }
 
   private getApiKey(): string | null {
@@ -95,7 +106,7 @@ class LLMClient {
   }
 
   isConfigured(): boolean {
-    return Boolean(this.baseUrl && this.getApiKey());
+    return Boolean(this.getBaseUrl() && this.getApiKey());
   }
 
   // Get the trainer model from the store (used for evolution, analysis, planning)
@@ -121,9 +132,10 @@ class LLMClient {
       return this.handleMockRequest(messages);
     }
 
+    const baseUrl = this.getBaseUrl();
     const apiKey = this.getApiKey();
-    if (!this.baseUrl || !apiKey) {
-      throw new Error("LLM API not configured. Please add an API key.");
+    if (!baseUrl || !apiKey) {
+      throw new Error("LLM API not configured. Please set your API Base URL and API Key.");
     }
 
     const startTime = Date.now();
@@ -150,7 +162,7 @@ class LLMClient {
     };
 
     try {
-      const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

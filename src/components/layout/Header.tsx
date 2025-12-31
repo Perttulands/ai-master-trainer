@@ -61,14 +61,14 @@ export function Header({
                   <ModelSelector mode="agent" />
                 </div>
               ) : (
-                <Button 
-                  variant="primary" 
-                  size="sm" 
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => setIsApiKeyModalOpen(true)}
                   className="bg-amber-600 hover:bg-amber-700 text-white border-amber-700"
                 >
                   <Key className="w-4 h-4 mr-2" />
-                  Set API Key
+                  Configure LLM
                 </Button>
               )}
             </>
@@ -89,14 +89,14 @@ export function Header({
                 <ModelSelector mode="agent" />
               </div>
             ) : (
-              <Button 
-                variant="primary" 
-                size="sm" 
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setIsApiKeyModalOpen(true)}
                 className="bg-amber-600 hover:bg-amber-700 text-white border-amber-700"
               >
                 <Key className="w-4 h-4 mr-2" />
-                Set API Key
+                Configure LLM
               </Button>
             )}
             <div className="h-6 w-px bg-gray-200" />
