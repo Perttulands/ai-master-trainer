@@ -182,7 +182,7 @@ export async function executeAgent(
           spans: result.spans || [],
           createdAt: Date.now(),
         };
-        recordAttemptCompleted(attemptForRecording, result.spans || [], result.output);
+        recordAttemptCompleted(attemptForRecording, result.spans || [], result.output, sessionId);
       } catch (recordError) {
         console.warn('[Agent Executor] Failed to record training signal:', recordError);
       }
@@ -245,7 +245,7 @@ export async function executeAgent(
           spans: [],
           createdAt: Date.now(),
         };
-        recordAttemptFailed(attemptForRecording, errorMessage);
+        recordAttemptFailed(attemptForRecording, errorMessage, sessionId);
       } catch (recordError) {
         console.warn('[Agent Executor] Failed to record training signal:', recordError);
       }

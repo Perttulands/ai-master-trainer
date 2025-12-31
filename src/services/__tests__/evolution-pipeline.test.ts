@@ -400,7 +400,8 @@ describe("Evolution Pipeline", () => {
         defaultInput.agent,
         expect.objectContaining({ version: 2 }),
         plan.changes,
-        plan.hypothesis
+        plan.hypothesis,
+        "session-123"
       );
     });
 
@@ -456,7 +457,8 @@ describe("Evolution Pipeline", () => {
       expect(mockRecordEvolutionOutcome).toHaveBeenCalledWith(
         "prev-evolution-123",
         3, // scoreDelta
-        true // hypothesisValidated
+        true, // hypothesisValidated
+        "session-123"
       );
     });
 

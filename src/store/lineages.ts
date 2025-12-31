@@ -185,7 +185,7 @@ export const useLineageStore = create<LineageState>((set, get) => ({
 
           // Record training signal for agent creation
           try {
-            recordAgentCreated(config.agent, lineage.id);
+            recordAgentCreated(config.agent, lineage.id, sessionId);
           } catch (recordError) {
             console.warn(
               "[Lineages] Failed to record agent creation:",
@@ -264,7 +264,7 @@ export const useLineageStore = create<LineageState>((set, get) => ({
 
       // Record training signal for agent creation
       try {
-        recordAgentCreated(config.agent, lineage.id);
+        recordAgentCreated(config.agent, lineage.id, sessionId);
       } catch (recordError) {
         console.warn(
           "[Lineages] Failed to record agent creation:",
@@ -333,7 +333,7 @@ export const useLineageStore = create<LineageState>((set, get) => ({
         const competitorIds = get()
           .lineages.filter((l) => l.id !== lineageId && !l.isLocked)
           .map((l) => l.id);
-        recordLineageLocked(lineageId, competitorIds);
+        recordLineageLocked(lineageId, competitorIds, lineage.sessionId);
       } catch (recordError) {
         console.warn(
           "[Lineages] Failed to record lineage locked:",
@@ -362,7 +362,8 @@ export const useLineageStore = create<LineageState>((set, get) => ({
         recordArtifactScored(
           lineage.currentArtifact,
           score,
-          lineage.currentEvaluation.comment ?? undefined
+          lineage.currentEvaluation.comment ?? undefined,
+          lineage.sessionId
         );
       } catch (recordError) {
         console.warn(
@@ -383,7 +384,7 @@ export const useLineageStore = create<LineageState>((set, get) => ({
 
       // Record training signal for new score
       try {
-        recordArtifactScored(lineage.currentArtifact, score);
+        recordArtifactScored(lineage.currentArtifact, score, undefined, lineage.sessionId);
       } catch (recordError) {
         console.warn(
           "[Lineages] Failed to record artifact scored:",

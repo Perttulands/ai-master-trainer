@@ -1,25 +1,41 @@
-import { useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Trash2, Clock } from 'lucide-react';
-import { Button, Card, CardContent } from '../components/ui';
-import { Header } from '../components/layout/Header';
-import { useSessionStore } from '../store/session';
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Plus, Trash2, Clock, Home as HomeIcon } from "lucide-react";
+import { Button, Card, CardContent } from "../components/ui";
+import { Header } from "../components/layout/Header";
+import { LandingPage } from "../components/layout/LandingPage";
+import { useSessionStore } from "../store/session";
 
 export function Home() {
   const navigate = useNavigate();
   const { sessions, loadSessions, deleteSession } = useSessionStore();
+  const [showLanding, setShowLanding] = useState(true);
 
   useEffect(() => {
     loadSessions();
   }, [loadSessions]);
 
+  // If user has sessions, they might want to see them, but we default to landing page
+  // unless they explicitly navigated here with an intent (which we can't easily track without more state)
+  // For now, we'll just show landing page by default, but if they have sessions,
+  // the landing page will show a "Go to Dashboard" button.
+
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (confirm('Are you sure you want to delete this session?')) {
+    if (confirm("Are you sure you want to delete this session?")) {
       deleteSession(id);
     }
   };
+
+  if (showLanding) {
+    return (
+      <div className="min-h-screen">
+        <Header />
+        <LandingPage onViewDashboard={() => setShowLanding(false)} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
@@ -27,13 +43,23 @@ export function Home() {
       <main className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Training Sessions</h1>
-            <p className="text-gray-500">Create and manage your AI training sessions</p>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Training Sessions
+            </h1>
+            <p className="text-gray-500">
+              Create and manage your AI training sessions
+            </p>
           </div>
-          <Button onClick={() => navigate('/new')}>
-            <Plus className="w-4 h-4 mr-1" />
-            New Session
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowLanding(true)}>
+              <HomeIcon className="w-4 h-4 mr-1" />
+              Home
+            </Button>
+            <Button onClick={() => navigate("/new")}>
+              <Plus className="w-4 h-4 mr-1" />
+              New Session
+            </Button>
+          </div>
         </div>
 
         {sessions.length === 0 ? (
@@ -42,11 +68,13 @@ export function Home() {
               <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
                 <Plus className="w-8 h-8 text-gray-400" />
               </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No sessions yet</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                No sessions yet
+              </h3>
               <p className="text-gray-500 mb-4">
                 Create your first training session to start evolving AI outputs.
               </p>
-              <Button onClick={() => navigate('/new')}>
+              <Button onClick={() => navigate("/new")}>
                 <Plus className="w-4 h-4 mr-1" />
                 Create Session
               </Button>
@@ -62,7 +90,9 @@ export function Home() {
                       <h3 className="font-semibold text-gray-900 truncate">
                         {session.name}
                       </h3>
-                      <p className="text-sm text-gray-500 truncate">{session.need}</p>
+                      <p className="text-sm text-gray-500 truncate">
+                        {session.need}
+                      </p>
                       <div className="flex items-center gap-1 mt-1 text-xs text-gray-400">
                         <Clock className="w-3 h-3" />
                         {new Date(session.updatedAt).toLocaleDateString()}

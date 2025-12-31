@@ -35,7 +35,7 @@ export function CardGrid({ lineages, onViewAgent, onRun, runningLineageId }: Car
   };
 
   return (
-    <div className={cn('grid gap-4 h-full', getGridClasses())}>
+    <div className={cn('grid gap-4', getGridClasses())}>
       {lineages.map((lineage) => (
         <LineageCard
           key={lineage.id}

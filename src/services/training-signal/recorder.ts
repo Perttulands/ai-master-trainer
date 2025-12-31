@@ -212,7 +212,8 @@ export function inferTags(
  */
 export function recordAgentCreated(
   agent: AgentDefinition,
-  lineageId: string
+  lineageId: string,
+  sessionId?: string
 ): string {
   const payload = {
     agentId: agent.id,
@@ -233,6 +234,7 @@ export function recordAgentCreated(
     {
       agentId: agent.id,
       lineageId,
+      sessionId,
     },
     ['lifecycle:created']
   );
@@ -245,7 +247,8 @@ export function recordAgentEvolved(
   fromAgent: AgentDefinition,
   toAgent: AgentDefinition,
   changes: EvolutionChange[],
-  hypothesis: string
+  hypothesis: string,
+  sessionId?: string
 ): string {
   const payload = {
     fromAgentId: fromAgent.id,
@@ -264,6 +267,7 @@ export function recordAgentEvolved(
     {
       agentId: toAgent.id,
       lineageId: toAgent.lineageId,
+      sessionId,
     },
     ['lifecycle:evolved']
   );
@@ -274,7 +278,7 @@ export function recordAgentEvolved(
 /**
  * Records when an attempt starts execution.
  */
-export function recordAttemptStarted(attempt: Attempt): string {
+export function recordAttemptStarted(attempt: Attempt, sessionId?: string): string {
   const payload = {
     attemptId: attempt.id,
     rolloutId: attempt.rolloutId,
@@ -291,6 +295,7 @@ export function recordAttemptStarted(attempt: Attempt): string {
     {
       attemptId: attempt.id,
       agentId: attempt.agentSnapshot.agentId,
+      sessionId,
     },
     ['execution:started']
   );
@@ -302,7 +307,8 @@ export function recordAttemptStarted(attempt: Attempt): string {
 export function recordAttemptCompleted(
   attempt: Attempt,
   spans: ExecutionSpan[],
-  output: string
+  output: string,
+  sessionId?: string
 ): string {
   // Extract tool usage information from spans
   const toolSpans = spans.filter((s) => s.type === 'tool_call');
@@ -340,6 +346,7 @@ export function recordAttemptCompleted(
     {
       attemptId: attempt.id,
       agentId: attempt.agentSnapshot.agentId,
+      sessionId,
     },
     ['execution:completed']
   );
@@ -350,7 +357,8 @@ export function recordAttemptCompleted(
  */
 export function recordAttemptFailed(
   attempt: Attempt,
-  error: string
+  error: string,
+  sessionId?: string
 ): string {
   const payload = {
     attemptId: attempt.id,
@@ -370,6 +378,7 @@ export function recordAttemptFailed(
     {
       attemptId: attempt.id,
       agentId: attempt.agentSnapshot.agentId,
+      sessionId,
     },
     ['execution:failed', 'has:error']
   );
@@ -383,7 +392,8 @@ export function recordAttemptFailed(
 export function recordArtifactScored(
   artifact: Artifact,
   score: number,
-  comment?: string
+  comment?: string,
+  sessionId?: string
 ): string {
   const payload = {
     artifactId: artifact.id,
@@ -401,6 +411,7 @@ export function recordArtifactScored(
     {
       artifactId: artifact.id,
       lineageId: artifact.lineageId,
+      sessionId,
     },
     ['evaluation:scored']
   );
@@ -411,7 +422,8 @@ export function recordArtifactScored(
  */
 export function recordLineageLocked(
   lineageId: string,
-  competitorIds: string[]
+  competitorIds: string[],
+  sessionId?: string
 ): string {
   const payload = {
     lineageId,
@@ -424,6 +436,7 @@ export function recordLineageLocked(
     payload,
     {
       lineageId,
+      sessionId,
     },
     ['evaluation:locked', 'selection:winner']
   );
@@ -435,7 +448,8 @@ export function recordLineageLocked(
 export function recordDirectiveAdded(
   lineageId: string,
   type: 'sticky' | 'oneshot',
-  content: string
+  content: string,
+  sessionId?: string
 ): string {
   const payload = {
     lineageId,
@@ -449,6 +463,7 @@ export function recordDirectiveAdded(
     payload,
     {
       lineageId,
+      sessionId,
     },
     [`directive:${type}`]
   );
@@ -462,7 +477,8 @@ export function recordDirectiveAdded(
 export function recordEvolutionOutcome(
   evolutionRecordId: string,
   scoreDelta: number,
-  validated: boolean
+  validated: boolean,
+  sessionId?: string
 ): string {
   const payload = {
     evolutionRecordId,
@@ -474,7 +490,9 @@ export function recordEvolutionOutcome(
   return recordEvent(
     'evolution.outcome',
     payload,
-    {},
+    {
+      sessionId,
+    },
     ['learning:outcome']
   );
 }

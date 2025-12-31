@@ -164,7 +164,7 @@ export async function runEvolutionPipeline(
 
   // Record training signal for agent evolution
   try {
-    recordAgentEvolved(agent, finalAgent, plan.changes, plan.hypothesis);
+    recordAgentEvolved(agent, finalAgent, plan.changes, plan.hypothesis, sessionId);
   } catch (recordError) {
     console.warn(
       "[Evolution Pipeline] Failed to record agent evolved:",
@@ -193,7 +193,8 @@ export async function runEvolutionPipeline(
         recordEvolutionOutcome(
           previousRecord.id,
           scoreDelta,
-          hypothesisValidated
+          hypothesisValidated,
+          sessionId
         );
       } catch (recordError) {
         console.warn(
