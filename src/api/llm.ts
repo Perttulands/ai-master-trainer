@@ -89,7 +89,12 @@ class LLMClient {
     }
 
     // 2. Try env var (dev/deployment provided)
-    return import.meta.env.VITE_LITELLM_API_BASE || null;
+    if (import.meta.env.VITE_LITELLM_API_BASE) {
+      return import.meta.env.VITE_LITELLM_API_BASE;
+    }
+
+    // 3. Hardcoded default - allows BYOK to work with just an API key
+    return "https://app-litellmsn66ka.azurewebsites.net";
   }
 
   private getApiKey(): string | null {

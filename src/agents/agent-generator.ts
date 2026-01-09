@@ -86,56 +86,51 @@ export interface GeneratedAgentConfig {
 
 /**
  * Generate initial agents for all 4 lineages (uses default strategies)
+ *
+ * IMPORTANT: LLM must be configured for this function to work.
+ * Throws an error if LLM is not configured - no fallback mode.
  */
 export async function generateInitialAgents(
   need: string,
   constraints?: string
 ): Promise<GeneratedAgentConfig[]> {
-  const labels: LineageLabel[] = ['A', 'B', 'C', 'D'];
-
+  // Require LLM to be configured - no fallback mode
   if (!isLLMConfigured()) {
-    console.warn('LLM not configured, using fallback agent generation');
-    return labels.map((label) => generateFallbackAgent(label, need, constraints));
+    throw new Error(
+      'LLM not configured. Please set your API key to generate agents.'
+    );
   }
 
-  // Generate all 4 agents in parallel
-  const promises = labels.map(async (label) => {
-    try {
-      return await generateAgentForLabel(label, need, constraints);
-    } catch (error) {
-      console.error(`Failed to generate agent for lineage ${label}:`, error);
-      return generateFallbackAgent(label, need, constraints);
-    }
-  });
+  const labels: LineageLabel[] = ['A', 'B', 'C', 'D'];
+
+  // Generate all 4 agents in parallel - let errors propagate
+  const promises = labels.map((label) => generateAgentForLabel(label, need, constraints));
 
   return Promise.all(promises);
 }
 
 /**
  * Generate agents from custom strategies (from strategy discussion)
+ *
+ * IMPORTANT: LLM must be configured for this function to work.
+ * Throws an error if LLM is not configured - no fallback mode.
  */
 export async function generateAgentsFromStrategies(
   need: string,
   strategies: CustomStrategy[],
   constraints?: string
 ): Promise<GeneratedAgentConfig[]> {
+  // Require LLM to be configured - no fallback mode
   if (!isLLMConfigured()) {
-    console.warn('LLM not configured, using custom strategies with fallback generation');
-    // Still need to await since generateAgentFromCustomStrategy is async
-    return Promise.all(
-      strategies.map((strategy) => generateAgentFromCustomStrategy(strategy, need, constraints, false))
+    throw new Error(
+      'LLM not configured. Please set your API key to generate agents.'
     );
   }
 
-  // Generate all 4 agents in parallel using custom strategies
-  const promises = strategies.map(async (strategy) => {
-    try {
-      return await generateAgentFromCustomStrategy(strategy, need, constraints, true);
-    } catch (error) {
-      console.error(`Failed to generate agent for lineage ${strategy.label}:`, error);
-      return generateAgentFromCustomStrategy(strategy, need, constraints, false);
-    }
-  });
+  // Generate all agents in parallel using custom strategies - let errors propagate
+  const promises = strategies.map((strategy) =>
+    generateAgentFromCustomStrategy(strategy, need, constraints, true)
+  );
 
   return Promise.all(promises);
 }
@@ -289,75 +284,9 @@ Style: ${config.style}`;
   };
 }
 
-/**
- * Fallback agent generation when LLM is not available
- * Also exported for use when evolving agents without a base agent
- */
-export function generateFallbackAgent(
-  label: LineageLabel,
-  need: string,
-  constraints?: string
-): GeneratedAgentConfig {
-  const config = STRATEGY_CONFIGS[label];
-  const now = Date.now();
-
-  const constraintNote = constraints ? `\n\nConstraints to follow:\n${constraints}` : '';
-
-  const systemPrompt = `You are a ${config.tag.toLowerCase()} AI assistant designed for: ${need}
-
-Your approach is ${config.style}.
-
-Guidelines:
-- Follow the user's instructions carefully
-- Maintain your ${config.tag.toLowerCase()} style consistently
-- Provide accurate and helpful responses${constraintNote}
-
-When in doubt, prioritize ${
-    label === 'A' ? 'brevity' :
-    label === 'B' ? 'completeness' :
-    label === 'C' ? 'creativity' :
-    label === 'D' ? 'accuracy' :
-    label === 'E' ? 'empathy' :
-    label === 'F' ? 'professionalism' :
-    label === 'G' ? 'accessibility' :
-    'adaptability'
-  }.`;
-
-  // Don't assign flows to basic agents - use direct LLM execution mode
-  // Flow-based execution had issues with hardcoded templates ignoring user input
-  const flow: AgentFlowStep[] = [];
-
-  const agent: AgentDefinition = {
-    id: generateId(),
-    name: `${config.tag} Agent`,
-    description: config.description,
-    version: 1,
-    systemPrompt,
-    tools: [],  // No tools - direct LLM execution only
-    flow,
-    memory: {
-      type: 'buffer',
-      config: {
-        maxMessages: 10,
-        maxTokens: 4000,
-      },
-    },
-    parameters: {
-      model: getAgentModelId(),
-      temperature: config.temperature,
-      maxTokens: 2048,
-      topP: 0.95,
-    },
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  return {
-    label,
-    strategyTag: config.tag,
-    agent,
-  };
-}
+// NOTE: generateFallbackAgent removed - LLM is now required for all operations.
+// See generateInitialAgents(), generateAgentsFromStrategies(), and generateAgent()
+// which all throw errors when LLM is not configured.
 
 /**
  * Get strategy configuration for a lineage label
@@ -376,6 +305,9 @@ export function getAllStrategyConfigs() {
 /**
  * Generate a single agent for a given configuration
  * Used for adding agents mid-session
+ *
+ * IMPORTANT: LLM must be configured for this function to work.
+ * Throws an error if LLM is not configured - no fallback mode.
  */
 export async function generateAgent(options: {
   need: string;
@@ -383,38 +315,34 @@ export async function generateAgent(options: {
   label: LineageLabel;
   strategyTag: string;
 }): Promise<AgentDefinition> {
+  // Require LLM to be configured - no fallback mode
+  if (!isLLMConfigured()) {
+    throw new Error(
+      'LLM not configured. Please set your API key to generate agents.'
+    );
+  }
+
   const { need, constraints, label, strategyTag } = options;
   const config = STRATEGY_CONFIGS[label];
   const now = Date.now();
 
-  let systemPrompt: string;
-
-  if (isLLMConfigured()) {
-    try {
-      let userPrompt = `Create a system prompt for an AI agent with this configuration:
+  let userPrompt = `Create a system prompt for an AI agent with this configuration:
 
 User Need: "${need}"
 Strategy: ${strategyTag} - ${config.description}
 Style: ${config.style}`;
 
-      if (constraints) {
-        userPrompt += `\n\nConstraints to incorporate:\n${constraints}`;
-      }
-
-      userPrompt += `\n\nGenerate the system prompt now:`;
-
-      systemPrompt = await generateWithSystem(AGENT_GENERATION_SYSTEM_PROMPT, userPrompt, {
-        maxTokens: 512,
-        temperature: 0.7,
-      });
-      systemPrompt = systemPrompt.trim();
-    } catch (error) {
-      console.error('Failed to generate agent system prompt:', error);
-      systemPrompt = generateFallbackSystemPrompt(need, constraints, config);
-    }
-  } else {
-    systemPrompt = generateFallbackSystemPrompt(need, constraints, config);
+  if (constraints) {
+    userPrompt += `\n\nConstraints to incorporate:\n${constraints}`;
   }
+
+  userPrompt += `\n\nGenerate the system prompt now:`;
+
+  // Let errors propagate - no fallback
+  const systemPrompt = await generateWithSystem(AGENT_GENERATION_SYSTEM_PROMPT, userPrompt, {
+    maxTokens: 512,
+    temperature: 0.7,
+  });
 
   // Don't assign flows to basic agents - use direct LLM execution mode
   // Flow-based execution had issues with hardcoded templates ignoring user input
@@ -425,7 +353,7 @@ Style: ${config.style}`;
     name: `${strategyTag} Agent`,
     description: config.description,
     version: 1,
-    systemPrompt,
+    systemPrompt: systemPrompt.trim(),
     tools: [],  // No tools - direct LLM execution only
     flow,
     memory: {
@@ -444,21 +372,4 @@ Style: ${config.style}`;
     createdAt: now,
     updatedAt: now,
   };
-}
-
-function generateFallbackSystemPrompt(
-  need: string,
-  constraints: string | undefined,
-  config: { tag: string; style: string }
-): string {
-  const constraintNote = constraints ? `\n\nConstraints to follow:\n${constraints}` : '';
-
-  return `You are a ${config.tag.toLowerCase()} AI assistant designed for: ${need}
-
-Your approach is ${config.style}.
-
-Guidelines:
-- Follow the user's instructions carefully
-- Maintain your ${config.tag.toLowerCase()} style consistently
-- Provide accurate and helpful responses${constraintNote}`;
 }
