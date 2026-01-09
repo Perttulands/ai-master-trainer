@@ -7,9 +7,11 @@ import { StrategyDiscussionModal } from '../components/strategy';
 import { useSessionStore } from '../store/session';
 import { useLineageStore } from '../store/lineages';
 import { useContextStore } from '../store/context';
+import { useProgressStore, createProgressEmitter } from '../store/progress';
 import { generateAgentsFromStrategies } from '../agents/agent-generator';
 import { proposeInputPrompt } from '../agents/master-trainer';
 import type { CustomStrategy } from '../types/strategy';
+import { STAGE_LABELS } from '../types/progress';
 
 interface ContextDocument {
   name: string;
@@ -111,6 +113,15 @@ export function NewSession() {
     setIsCreating(true);
     setError(null);
 
+    // Start progress tracking
+    const { startOperation, completeOperation, failOperation } = useProgressStore.getState();
+    const items = strategies.map(s => ({ id: s.label, label: `Agent ${s.label}` }));
+    startOperation('session_creation', items);
+    const progressEmitter = createProgressEmitter();
+
+    // Set initial stage
+    progressEmitter.stage('generating_agents', STAGE_LABELS.generating_agents);
+
     try {
       // Create session with input prompt and agent count
       const session = createSession({
@@ -144,17 +155,23 @@ export function NewSession() {
       const agentConfigs = await generateAgentsFromStrategies(
         need.trim(),
         strategies,
-        constraints.trim() || undefined
+        constraints.trim() || undefined,
+        progressEmitter
       );
 
       // Create lineages with agents and execute them to produce artifacts
-      await createInitialLineagesWithAgents(session.id, agentConfigs);
+      await createInitialLineagesWithAgents(session.id, agentConfigs, undefined, progressEmitter);
+
+      // Complete the operation
+      completeOperation();
 
       // Navigate to training view
       navigate(`/session/${session.id}`);
     } catch (err) {
       console.error('Failed to create session:', err);
-      setError(err instanceof Error ? err.message : 'Failed to create session');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create session';
+      failOperation(errorMessage);
+      setError(errorMessage);
       setIsCreating(false);
     }
   }, [name, need, constraints, inputPrompt, agentCount, documents, examples, createSession, addDocument, addExample, createInitialLineagesWithAgents, navigate]);

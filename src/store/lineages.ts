@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Lineage, LineageWithArtifact, LineageLabel } from "../types";
 import type { AgentDefinition } from "../types/agent";
 import type { ExecutionSpan } from "../types/evolution";
+import type { ProgressEmitter } from "../types/progress";
 import * as queries from "../db/queries";
 import {
   executeAgentWithFallback,
@@ -44,7 +45,8 @@ interface LineageState {
       strategyTag: string;
       agent: AgentDefinition;
     }[],
-    testInput?: ExecutionInput
+    testInput?: ExecutionInput,
+    progressEmitter?: ProgressEmitter
   ) => Promise<void>;
   addLineage: (
     sessionId: string,
@@ -84,7 +86,8 @@ interface LineageState {
   regenerateWithFullPipeline: (
     sessionId: string,
     need: string,
-    getAgentForLineage: (lineageId: string) => AgentDefinition | undefined
+    getAgentForLineage: (lineageId: string) => AgentDefinition | undefined,
+    progressEmitter?: ProgressEmitter
   ) => Promise<void>;
   canRegenerate: () => boolean;
   getUnlockedLineages: () => LineageWithArtifact[];
@@ -157,7 +160,8 @@ export const useLineageStore = create<LineageState>((set, get) => ({
   createInitialLineagesWithAgents: async (
     sessionId,
     configs,
-    testInput?: ExecutionInput
+    testInput?: ExecutionInput,
+    progressEmitter?: ProgressEmitter
   ) => {
     set({ isLoading: true });
 
@@ -171,8 +175,14 @@ export const useLineageStore = create<LineageState>((set, get) => ({
           session?.inputPrompt
         );
 
+      // Update stage to executing agents
+      progressEmitter?.stage("executing_agents", "Running agents to produce outputs...");
+
       const lineagesWithArtifacts: LineageWithArtifact[] = await Promise.all(
         configs.map(async (config) => {
+          // Signal that this agent is being executed
+          progressEmitter?.itemProgress(config.label, "executing_agents");
+
           // Create lineage
           const lineage = queries.createLineage(
             sessionId,
@@ -223,6 +233,9 @@ export const useLineageStore = create<LineageState>((set, get) => ({
               spanCount: result.spans?.length ?? 0,
             }
           );
+
+          // Mark this agent as complete
+          progressEmitter?.itemComplete(config.label);
 
           return {
             ...lineage,
@@ -631,7 +644,7 @@ export const useLineageStore = create<LineageState>((set, get) => ({
     }
   },
 
-  regenerateWithFullPipeline: async (sessionId, need, getAgentForLineage) => {
+  regenerateWithFullPipeline: async (sessionId, need, getAgentForLineage, progressEmitter) => {
     const unlockedLineages = get().getUnlockedLineages();
     if (unlockedLineages.length === 0) return;
 
@@ -647,6 +660,9 @@ export const useLineageStore = create<LineageState>((set, get) => ({
         get().lineages.map(async (lineage) => {
           if (lineage.isLocked) return lineage;
 
+          // Signal that this lineage is being processed
+          progressEmitter?.itemProgress(lineage.label, "analyzing_reward");
+
           // Clear oneshot directive after use
           if (lineage.directiveOneshot) {
             queries.clearOneshotDirective(lineage.id);
@@ -656,6 +672,7 @@ export const useLineageStore = create<LineageState>((set, get) => ({
           const currentAgent = getAgentForLineage(lineage.id);
           if (!currentAgent) {
             console.warn(`[Pipeline] No agent found for lineage ${lineage.id}`);
+            progressEmitter?.itemError(lineage.label, "No agent found");
             return lineage;
           }
 
@@ -700,6 +717,7 @@ export const useLineageStore = create<LineageState>((set, get) => ({
             attemptId,
             spans: currentExecutionSpans, // Pass spans for trajectory-based credit assignment
             sessionId,
+            progressEmitter, // Pass emitter to pipeline for stage updates
           });
 
           console.log(`[Pipeline] ${lineage.label}: ${pipelineResult.summary}`);
@@ -711,6 +729,9 @@ export const useLineageStore = create<LineageState>((set, get) => ({
 
           // Save evolved agent to database
           queries.createAgent(pipelineResult.evolvedAgent, lineage.id);
+
+          // Update progress: executing evolved agent
+          progressEmitter?.itemProgress(lineage.label, "executing_evolved");
 
           // Execute evolved agent with full tracking
           const executionOptions: ExecutionOptions = {
@@ -743,6 +764,9 @@ export const useLineageStore = create<LineageState>((set, get) => ({
               spanCount: result.spans?.length ?? 0,
             }
           );
+
+          // Mark this lineage as complete
+          progressEmitter?.itemComplete(lineage.label);
 
           return {
             ...lineage,

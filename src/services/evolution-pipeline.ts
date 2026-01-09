@@ -17,6 +17,7 @@ import type {
   ExecutionSpan,
   CreateEvolutionRecordInput,
 } from "../types/evolution";
+import type { ProgressEmitter } from "../types/progress";
 import { analyzeReward, summarizeAnalysis } from "./reward-analyzer";
 import { assignCredit, summarizeCreditAssignment } from "./credit-assignment";
 import { createEvolutionPlan, summarizePlan } from "./evolution-planner";
@@ -51,6 +52,7 @@ export interface EvolutionPipelineInput {
   attemptId?: string;
   spans?: ExecutionSpan[];
   sessionId: string;
+  progressEmitter?: ProgressEmitter;
 }
 
 /**
@@ -82,6 +84,7 @@ export async function runEvolutionPipeline(
     attemptId,
     spans = [],
     sessionId,
+    progressEmitter,
   } = input;
 
   console.log(
@@ -93,11 +96,13 @@ export async function runEvolutionPipeline(
 
   // Step 1: Analyze Reward
   console.log("[Evolution Pipeline] Step 1: Analyzing reward...");
+  progressEmitter?.stage("analyzing_reward", "Analyzing your feedback...");
   const analysis = await analyzeReward(score, comment, previousScore ?? null);
   console.log(`[Evolution Pipeline] ${summarizeAnalysis(analysis)}`);
 
   // Step 2: Assign Credit
   console.log("[Evolution Pipeline] Step 2: Assigning credit...");
+  progressEmitter?.stage("assigning_credit", "Identifying areas to improve...");
   const { mode, credits } = await assignCredit(agent, analysis, spans);
   console.log(
     `[Evolution Pipeline] Credit mode: ${mode}, ${summarizeCreditAssignment(credits)}`
@@ -105,6 +110,7 @@ export async function runEvolutionPipeline(
 
   // Step 3: Get History for Context
   console.log("[Evolution Pipeline] Step 3: Getting evolution history...");
+  progressEmitter?.stage("getting_history", "Reviewing evolution history...");
   const agentLineageId = agent.lineageId || `lineage-${agent.id}`;
   const pastRecords = getEvolutionRecordsByLineage(agentLineageId);
   const insights = getLearningInsightsBySession(sessionId);
@@ -114,6 +120,7 @@ export async function runEvolutionPipeline(
 
   // Step 4: Plan Evolution
   console.log("[Evolution Pipeline] Step 4: Planning evolution...");
+  progressEmitter?.stage("planning_evolution", "Planning improvements...");
   const plan = await createEvolutionPlan(
     agent,
     analysis,
@@ -125,6 +132,7 @@ export async function runEvolutionPipeline(
 
   // Step 5: Apply Evolution
   console.log("[Evolution Pipeline] Step 5: Applying evolution...");
+  progressEmitter?.stage("applying_evolution", "Applying changes to agent...");
   const evolvedAgent = await applyEvolution(
     agent,
     need,
@@ -140,6 +148,7 @@ export async function runEvolutionPipeline(
 
   // Step 6: Record Evolution
   console.log("[Evolution Pipeline] Step 6: Recording evolution...");
+  progressEmitter?.stage("recording_evolution", "Saving evolution record...");
   const lineageId = agent.lineageId || `lineage-${agent.id}`;
   const recordInput: CreateEvolutionRecordInput = {
     lineageId,

@@ -26,6 +26,8 @@ import { useUIStore } from "../store/ui";
 import { useAgentStore } from "../store/agents";
 import { useContextStore } from "../store/context";
 import { useSessionStore } from "../store/session";
+import { useProgressStore, createProgressEmitter } from "../store/progress";
+import { STAGE_LABELS } from "../types/progress";
 import {
   respondToChat,
   getNextAvailableLabel,
@@ -207,20 +209,43 @@ export function Training() {
   const handleRegenerate = useCallback(async () => {
     if (!session || !sessionId) return;
 
-    // Use the full Agent Lightning evolution pipeline:
-    // Reward Analysis → Credit Assignment → Evolution Planning → Agent Evolution
-    // This replaces the previous inline evolver which bypassed these steps
-    await regenerateWithFullPipeline(
-      sessionId,
-      session.need,
-      getAgentForLineage
-    );
+    // Get unlocked lineages for progress tracking
+    const unlockedLineages = lineages.filter(l => !l.isLocked);
+    if (unlockedLineages.length === 0) return;
 
-    // Reload agents after regeneration
-    loadAgentsForSession(sessionId);
+    // Start progress tracking
+    const { startOperation, completeOperation, failOperation } = useProgressStore.getState();
+    const items = unlockedLineages.map(l => ({ id: l.label, label: `Lineage ${l.label}` }));
+    startOperation('regeneration', items);
+    const progressEmitter = createProgressEmitter();
+
+    // Set initial stage
+    progressEmitter.stage('analyzing_reward', STAGE_LABELS.analyzing_reward);
+
+    try {
+      // Use the full Agent Lightning evolution pipeline:
+      // Reward Analysis → Credit Assignment → Evolution Planning → Agent Evolution
+      // This replaces the previous inline evolver which bypassed these steps
+      await regenerateWithFullPipeline(
+        sessionId,
+        session.need,
+        getAgentForLineage,
+        progressEmitter
+      );
+
+      // Complete the operation
+      completeOperation();
+
+      // Reload agents after regeneration
+      loadAgentsForSession(sessionId);
+    } catch (err) {
+      console.error('Regeneration failed:', err);
+      failOperation(err instanceof Error ? err.message : 'Regeneration failed');
+    }
   }, [
     session,
     sessionId,
+    lineages,
     regenerateWithFullPipeline,
     getAgentForLineage,
     loadAgentsForSession,

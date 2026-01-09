@@ -1,11 +1,19 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, History, Download, RefreshCw, Zap, ZapOff, Key } from 'lucide-react';
-import { Button, ModelSelector, ApiKeyModal } from '../ui';
-import type { Session } from '../../types';
-import { isLLMConfigured } from '../../api/llm';
-import { useModelStore } from '../../store/model';
-import { cn } from '../../utils/cn';
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  ArrowLeft,
+  Database,
+  Download,
+  RefreshCw,
+  Zap,
+  ZapOff,
+  Key,
+} from "lucide-react";
+import { Button, ModelSelector, ApiKeyModal } from "../ui";
+import type { Session } from "../../types";
+import { isLLMConfigured } from "../../api/llm";
+import { useModelStore } from "../../store/model";
+import { cn } from "../../utils/cn";
 
 interface HeaderProps {
   session?: Session | null;
@@ -24,10 +32,10 @@ export function Header({
 }: HeaderProps) {
   const navigate = useNavigate();
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
-  
+
   // Subscribe to store updates so we re-render when key changes
   useModelStore((state) => state.apiKey);
-  
+
   const llmConnected = isLLMConfigured();
 
   return (
@@ -36,7 +44,7 @@ export function Header({
         <div className="flex items-center gap-4">
           {session ? (
             <button
-              onClick={() => navigate('/')}
+              onClick={() => navigate("/")}
               className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
@@ -51,9 +59,15 @@ export function Header({
           )}
           {!session && (
             <>
-              <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${llmConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                {llmConnected ? <Zap className="w-3 h-3" /> : <ZapOff className="w-3 h-3" />}
-                {llmConnected ? 'LLM Connected' : 'Mock Mode'}
+              <div
+                className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${llmConnected ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}
+              >
+                {llmConnected ? (
+                  <Zap className="w-3 h-3" />
+                ) : (
+                  <ZapOff className="w-3 h-3" />
+                )}
+                {llmConnected ? "LLM Connected" : "Mock Mode"}
               </div>
               {llmConnected ? (
                 <div className="flex items-center gap-2">
@@ -68,7 +82,7 @@ export function Header({
                   className="bg-amber-600 hover:bg-amber-700 text-white border-amber-700"
                 >
                   <Key className="w-4 h-4 mr-2" />
-                  Configure LLM
+                  Set API Key
                 </Button>
               )}
             </>
@@ -76,7 +90,9 @@ export function Header({
           {session && (
             <div>
               <h1 className="font-semibold text-gray-900">{session.name}</h1>
-              <p className="text-xs text-gray-500 truncate max-w-md">{session.need}</p>
+              <p className="text-xs text-gray-500 truncate max-w-md">
+                {session.need}
+              </p>
             </div>
           )}
         </div>
@@ -96,17 +112,18 @@ export function Header({
                 className="bg-amber-600 hover:bg-amber-700 text-white border-amber-700"
               >
                 <Key className="w-4 h-4 mr-2" />
-                Configure LLM
+                Set API Key
               </Button>
             )}
             <div className="h-6 w-px bg-gray-200" />
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
               onClick={() => navigate(`/session/${session.id}/history`)}
+              className="bg-primary-50 hover:bg-primary-100 text-primary-700 border-primary-200"
             >
-              <History className="w-4 h-4 mr-1" />
-              History
+              <Database className="w-4 h-4 mr-1" />
+              Session Data
             </Button>
             <Button
               variant="ghost"
@@ -123,9 +140,15 @@ export function Header({
                 disabled={!canRegenerate || isRegenerating}
                 title="Regenerate Unlocked"
               >
-                <RefreshCw className={cn("w-4 h-4", isRegenerating && "animate-spin", "md:mr-1")} />
+                <RefreshCw
+                  className={cn(
+                    "w-4 h-4",
+                    isRegenerating && "animate-spin",
+                    "md:mr-1"
+                  )}
+                />
                 <span className="hidden md:inline">
-                  {isRegenerating ? 'Regenerating...' : 'Regenerate Unlocked'}
+                  {isRegenerating ? "Regenerating..." : "Regenerate Unlocked"}
                 </span>
               </Button>
             )}
@@ -133,9 +156,9 @@ export function Header({
         )}
       </div>
 
-      <ApiKeyModal 
-        isOpen={isApiKeyModalOpen} 
-        onClose={() => setIsApiKeyModalOpen(false)} 
+      <ApiKeyModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
       />
     </header>
   );

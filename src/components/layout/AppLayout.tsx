@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
+import { ProgressOverlay } from '../ui';
 
 export function AppLayout() {
   const { isReady, error } = useDatabase();
@@ -29,6 +30,7 @@ export function AppLayout() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Outlet />
+      <ProgressOverlay />
     </div>
   );
 }

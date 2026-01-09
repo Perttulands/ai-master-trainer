@@ -4,6 +4,7 @@ import { generateWithSystem, isLLMConfigured, getAgentModelId } from '../api/llm
 import type { AgentDefinition, AgentFlowStep } from '../types/agent';
 import type { LineageLabel } from '../types';
 import type { CustomStrategy } from '../types/strategy';
+import type { ProgressEmitter } from '../types/progress';
 import { generateId } from '../utils/id';
 
 // Strategy configurations for each lineage label
@@ -114,11 +115,14 @@ export async function generateInitialAgents(
  *
  * IMPORTANT: LLM must be configured for this function to work.
  * Throws an error if LLM is not configured - no fallback mode.
+ *
+ * @param progressEmitter - Optional emitter for tracking generation progress
  */
 export async function generateAgentsFromStrategies(
   need: string,
   strategies: CustomStrategy[],
-  constraints?: string
+  constraints?: string,
+  progressEmitter?: ProgressEmitter
 ): Promise<GeneratedAgentConfig[]> {
   // Require LLM to be configured - no fallback mode
   if (!isLLMConfigured()) {
@@ -128,9 +132,22 @@ export async function generateAgentsFromStrategies(
   }
 
   // Generate all agents in parallel using custom strategies - let errors propagate
-  const promises = strategies.map((strategy) =>
-    generateAgentFromCustomStrategy(strategy, need, constraints, true)
-  );
+  const promises = strategies.map(async (strategy) => {
+    // Signal that this agent is being generated
+    progressEmitter?.itemProgress(strategy.label, 'generating_agents');
+
+    try {
+      const result = await generateAgentFromCustomStrategy(strategy, need, constraints, true);
+      // Don't mark complete here - let the caller handle completion after execution
+      return result;
+    } catch (error) {
+      progressEmitter?.itemError(
+        strategy.label,
+        error instanceof Error ? error.message : 'Generation failed'
+      );
+      throw error;
+    }
+  });
 
   return Promise.all(promises);
 }
