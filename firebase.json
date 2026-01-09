@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "target": "aitrainer",
     "public": "dist",
     "ignore": [
       "firebase.json",

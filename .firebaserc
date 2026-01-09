@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "perttuland"
-  }
+  },
+  "targets": {
+    "perttuland": {
+      "hosting": {
+        "aitrainer": [
+          "perttuland-aitrainer"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }
