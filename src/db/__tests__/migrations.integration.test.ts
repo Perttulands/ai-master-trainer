@@ -89,6 +89,68 @@ function createDatabaseAtVersion4(): Database {
   return db;
 }
 
+/**
+ * Create a database that claims to be current version but is structurally stale.
+ * This simulates users who got a bad schema_version write from older builds.
+ */
+function createCorruptedDatabaseAtCurrentVersion(): Database {
+  const db = new SQL.Database();
+
+  // Intentionally old/minimal schema with schema_version set to latest
+  db.run(`
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      need TEXT NOT NULL,
+      constraints TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE lineages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      strategy_tag TEXT,
+      is_locked INTEGER DEFAULT 0,
+      directive_sticky TEXT,
+      directive_oneshot TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE artifacts (
+      id TEXT PRIMARY KEY,
+      lineage_id TEXT NOT NULL,
+      cycle INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      metadata TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE evaluations (
+      id TEXT PRIMARY KEY,
+      artifact_id TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      comment TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE audit_log (
+      id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      data TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+    INSERT INTO schema_version (version) VALUES (${SCHEMA_VERSION});
+  `);
+
+  return db;
+}
+
 // Helper to check if a column exists in a table
 function columnExists(db: Database, table: string, column: string): boolean {
   const result = db.exec(`PRAGMA table_info(${table})`);
@@ -223,6 +285,44 @@ describe('Database Migrations Integration', () => {
 
       // Should have mode column since we're creating fresh
       expect(columnExists(db, 'sessions', 'mode')).toBe(true);
+
+      db.close();
+    });
+
+    it('should repair missing tables even when schema_version is already current', async () => {
+      const db = createCorruptedDatabaseAtCurrentVersion();
+
+      // Corrupted state: rollout tables are missing despite "current" version
+      expect(tableExists(db, 'rollouts')).toBe(false);
+      expect(tableExists(db, 'attempts')).toBe(false);
+      expect(tableExists(db, 'execution_spans')).toBe(false);
+
+      const { applyMigrations } = await import('../index');
+      applyMigrations(db);
+
+      expect(tableExists(db, 'rollouts')).toBe(true);
+      expect(tableExists(db, 'attempts')).toBe(true);
+      expect(tableExists(db, 'execution_spans')).toBe(true);
+
+      db.close();
+    });
+
+    it('should repair missing session columns when schema_version is already current', async () => {
+      const db = createCorruptedDatabaseAtCurrentVersion();
+
+      // Corrupted state: these columns are required by current queries
+      expect(columnExists(db, 'sessions', 'mode')).toBe(false);
+      expect(columnExists(db, 'sessions', 'input_prompt')).toBe(false);
+      expect(columnExists(db, 'sessions', 'initial_agent_count')).toBe(false);
+      expect(columnExists(db, 'sessions', 'trainer_messages')).toBe(false);
+
+      const { applyMigrations } = await import('../index');
+      applyMigrations(db);
+
+      expect(columnExists(db, 'sessions', 'mode')).toBe(true);
+      expect(columnExists(db, 'sessions', 'input_prompt')).toBe(true);
+      expect(columnExists(db, 'sessions', 'initial_agent_count')).toBe(true);
+      expect(columnExists(db, 'sessions', 'trainer_messages')).toBe(true);
 
       db.close();
     });

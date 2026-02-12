@@ -7,6 +7,112 @@ const SAVE_DEBOUNCE_MS = 1000;
 
 const DB_STORAGE_KEY = "training-camp-db";
 
+type RequiredColumn = {
+  table: string;
+  name: string;
+  definition: string;
+};
+
+const REQUIRED_COLUMNS: RequiredColumn[] = [
+  {
+    table: "sessions",
+    name: "mode",
+    definition: "mode TEXT NOT NULL DEFAULT 'training'",
+  },
+  {
+    table: "sessions",
+    name: "promoted_from",
+    definition: "promoted_from TEXT",
+  },
+  {
+    table: "sessions",
+    name: "input_prompt",
+    definition: "input_prompt TEXT",
+  },
+  {
+    table: "sessions",
+    name: "initial_agent_count",
+    definition: "initial_agent_count INTEGER NOT NULL DEFAULT 4",
+  },
+  {
+    table: "sessions",
+    name: "trainer_messages",
+    definition: "trainer_messages TEXT",
+  },
+  {
+    table: "artifacts",
+    name: "agent_version",
+    definition: "agent_version INTEGER DEFAULT 1",
+  },
+  {
+    table: "artifacts",
+    name: "input",
+    definition: "input TEXT",
+  },
+  {
+    table: "artifacts",
+    name: "tools_used",
+    definition: "tools_used TEXT",
+  },
+  {
+    table: "artifacts",
+    name: "tokens_used",
+    definition: "tokens_used INTEGER",
+  },
+  {
+    table: "artifacts",
+    name: "latency_ms",
+    definition: "latency_ms INTEGER",
+  },
+];
+
+function tableExists(database: Database, tableName: string): boolean {
+  const result = database.exec(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='${tableName}'`
+  );
+  return result.length > 0 && result[0].values.length > 0;
+}
+
+function columnExists(
+  database: Database,
+  tableName: string,
+  columnName: string
+): boolean {
+  if (!tableExists(database, tableName)) return false;
+
+  const result = database.exec(`PRAGMA table_info(${tableName})`);
+  if (result.length === 0) return false;
+
+  return result[0].values.some((row) => row[1] === columnName);
+}
+
+/**
+ * Repairs schema drift from older buggy builds by ensuring required tables
+ * and columns exist, even when schema_version is already marked as current.
+ */
+function reconcileSchemaIntegrity(database: Database): void {
+  // Ensure all current tables and indexes exist.
+  database.run(CREATE_TABLES_SQL);
+
+  // Ensure additive migration columns exist for known legacy drift cases.
+  for (const column of REQUIRED_COLUMNS) {
+    if (!columnExists(database, column.table, column.name)) {
+      console.log(
+        `Training Camp: Repairing missing column ${column.table}.${column.name}`
+      );
+      database.run(
+        `ALTER TABLE ${column.table} ADD COLUMN ${column.definition}`
+      );
+    }
+  }
+
+  // Normalize schema_version to a single current value after reconciliation.
+  database.run("DELETE FROM schema_version");
+  database.run("INSERT INTO schema_version (version) VALUES (?)", [
+    SCHEMA_VERSION,
+  ]);
+}
+
 /**
  * Convert Uint8Array to Base64 string using chunked processing.
  * This avoids stack overflow that occurs when using spread operator
@@ -118,20 +224,27 @@ export function applyMigrations(database: Database): void {
       "Training Camp: Creating fresh database at version",
       SCHEMA_VERSION
     );
-    database.run(CREATE_TABLES_SQL);
-    database.run("INSERT INTO schema_version (version) VALUES (?)", [
-      SCHEMA_VERSION,
-    ]);
+    reconcileSchemaIntegrity(database);
     return;
   }
 
   // Existing database - check version and apply migrations
   const result = database.exec("SELECT version FROM schema_version LIMIT 1");
-  const currentVersion =
-    result.length > 0 ? (result[0].values[0][0] as number) : 0;
+  const hasVersionRow = result.length > 0 && result[0].values.length > 0;
+
+  if (!hasVersionRow) {
+    console.warn(
+      "Training Camp: schema_version table exists without a version row, repairing schema"
+    );
+    reconcileSchemaIntegrity(database);
+    return;
+  }
+
+  const currentVersion = result[0].values[0][0] as number;
 
   if (currentVersion >= SCHEMA_VERSION) {
     console.log("Training Camp: Database already at version", currentVersion);
+    reconcileSchemaIntegrity(database);
     return;
   }
 
@@ -164,6 +277,7 @@ export function applyMigrations(database: Database): void {
   }
 
   console.log("Training Camp: Database migration complete");
+  reconcileSchemaIntegrity(database);
 }
 
 export function getDatabase(): Database {
