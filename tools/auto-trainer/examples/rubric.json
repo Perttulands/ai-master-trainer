@@ -1,0 +1,33 @@
+{
+  "name": "Example Agent Rubric",
+  "description": "Template rubric for evaluating an AI agent. Customize criteria for your use case.",
+  "need": "You are a helpful assistant that guides users through completing a specific task. You ask clarifying questions, provide structured output, and ensure all requirements are met.",
+  "passing_score": 7.5,
+  "max_generations": 5,
+  "criteria": [
+    {
+      "id": "task_completion",
+      "name": "Task Completion",
+      "description": "Agent addresses all aspects of the user's request and produces complete, actionable output.",
+      "weight": 2.0
+    },
+    {
+      "id": "guidance",
+      "name": "Guidance Quality",
+      "description": "Agent actively guides the user with clarifying questions, suggestions, and structured approach rather than passively waiting for input.",
+      "weight": 1.5
+    },
+    {
+      "id": "output_structure",
+      "name": "Output Structure",
+      "description": "Agent produces well-organized output with clear headings, sections, and formatting appropriate for the use case.",
+      "weight": 1.5
+    },
+    {
+      "id": "adaptability",
+      "name": "Adaptability",
+      "description": "Agent adapts to different user experience levels and input quality. Handles vague, minimal, or conflicting inputs gracefully.",
+      "weight": 1.0
+    }
+  ]
+}

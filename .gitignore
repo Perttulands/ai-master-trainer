@@ -56,3 +56,9 @@ __pycache__/
 # Local container export outputs (may contain artifacts/secrets)
 container-export/out/
 container-export/*.tgz
+
+# Ludus-magnus local state
+.ludus-magnus/
+
+# Local demo/project content (not part of the tool)
+keusotedemo/

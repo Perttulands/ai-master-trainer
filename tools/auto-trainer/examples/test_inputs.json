@@ -1,0 +1,25 @@
+{
+  "name": "Example test inputs",
+  "inputs": [
+    {
+      "id": "happy_path",
+      "name": "Clear request with details",
+      "input": "Hi! I need help with X. Here are the details: A, B, and C. My budget is Y and timeline is Z."
+    },
+    {
+      "id": "vague_request",
+      "name": "Vague request, minimal info",
+      "input": "I need help with something."
+    },
+    {
+      "id": "detailed_expert",
+      "name": "Expert user with specific requirements",
+      "input": "I need X with these specific constraints: requirement 1, requirement 2, requirement 3. I've already tried approaches A and B. Looking for approach C with these technical specifications."
+    },
+    {
+      "id": "conflicting",
+      "name": "Conflicting or unrealistic requirements",
+      "input": "I need X done by tomorrow with zero budget but it needs to be enterprise-grade and cover all edge cases."
+    }
+  ]
+}
