@@ -78,7 +78,20 @@ Your Need → AI Agents → Outputs → Your Scores → Better Agents → Better
    pnpm dev
    ```
 
-4. **Configure your LLM** (in the app)
+4. **Choose runtime mode**
+   - **LiteLLM direct (default):** keep `VITE_LLM_RUNTIME=litellm`
+   - **ADK runtime:** set `VITE_LLM_RUNTIME=adk` and run the backend:
+     ```bash
+     cd backend/adk_runtime
+     python -m venv .venv
+     source .venv/bin/activate
+     pip install -r requirements.txt
+     export ADK_LITELLM_API_BASE=https://your-litellm-gateway.com
+     export ADK_LITELLM_API_KEY=your-litellm-api-key
+     uvicorn adk_runtime.main:app --host 0.0.0.0 --port 8000 --reload
+     ```
+
+5. **Configure your LLM** (in the app for direct LiteLLM mode)
    - Click "Configure LLM" in the header
    - Enter your LiteLLM proxy URL and API key
    - Or use Mock Mode to explore without an API key

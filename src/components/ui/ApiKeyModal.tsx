@@ -36,7 +36,8 @@ export function ApiKeyModal({ isOpen, onClose }: ApiKeyModalProps) {
             </h3>
             <p className="text-sm text-blue-700 mt-1">
               To use the advanced features of Training Camp, you need to provide
-              your LiteLLM API key. This key is stored locally in your browser.
+              your LiteLLM API key when running in direct LiteLLM mode. This key
+              is stored locally in your browser.
             </p>
           </div>
         </div>
@@ -54,7 +55,8 @@ export function ApiKeyModal({ isOpen, onClose }: ApiKeyModalProps) {
             className="font-mono"
           />
           <p className="text-xs text-gray-500">
-            Your key is never sent to our servers, only to the LiteLLM proxy.
+            In direct mode, your key is sent only to the configured LiteLLM
+            endpoint.
           </p>
         </div>
 

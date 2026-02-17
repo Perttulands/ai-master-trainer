@@ -14,6 +14,7 @@ vi.stubGlobal('fetch', mockFetch);
 vi.stubEnv('VITE_LITELLM_API_BASE', 'https://api.test.com');
 vi.stubEnv('VITE_LITELLM_API_KEY', 'test-api-key');
 vi.stubEnv('VITE_LITELLM_MODEL', 'test-model');
+vi.stubEnv('VITE_LLM_RUNTIME', 'litellm');
 
 // Mock the model store
 vi.mock('../../store/model', () => ({
@@ -402,5 +403,44 @@ describe('LLM Client (unconfigured)', () => {
     await expect(
       llmClient.chat([{ role: 'user', content: 'Hello' }])
     ).rejects.toThrow('LLM API not configured');
+  });
+});
+
+describe('LLM Client (ADK runtime)', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_LLM_RUNTIME', 'adk');
+    vi.stubEnv('VITE_ADK_RUNTIME_BASE', 'http://localhost:8000');
+    vi.stubEnv('VITE_ADK_RUNTIME_API_KEY', '');
+  });
+
+  it('isLLMConfigured returns true with ADK base URL only', async () => {
+    const { isLLMConfigured } = await import('../llm');
+    expect(isLLMConfigured()).toBe(true);
+  });
+
+  it('chat calls ADK runtime endpoint without auth when key is not set', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          id: 'test-id',
+          choices: [{ message: { content: 'Response from ADK' } }],
+          usage: {},
+        }),
+    });
+
+    const { llmClient } = await import('../llm');
+    await llmClient.chat([{ role: 'user', content: 'Hello ADK' }]);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:8000/v1/chat/completions',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+    );
   });
 });

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:adk-runtime": "cd backend/adk_runtime && uvicorn adk_runtime.main:app --host 0.0.0.0 --port 8000 --reload",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext .ts,.tsx",

@@ -71,6 +71,8 @@ interface ChatOptions {
   sessionId?: string; // For debug filtering
 }
 
+type RuntimeMode = "litellm" | "adk";
+
 class LLMClient {
   private defaultModel: string;
 
@@ -79,7 +81,16 @@ class LLMClient {
       import.meta.env.VITE_LITELLM_MODEL || "anthropic/claude-4-5-sonnet-aws";
   }
 
-  private getBaseUrl(): string | null {
+  private getRuntimeMode(): RuntimeMode {
+    const mode = import.meta.env.VITE_LLM_RUNTIME?.toLowerCase();
+    return mode === "adk" ? "adk" : "litellm";
+  }
+
+  private getBaseUrl(runtimeMode: RuntimeMode): string | null {
+    if (runtimeMode === "adk") {
+      return import.meta.env.VITE_ADK_RUNTIME_BASE || "http://localhost:8000";
+    }
+
     // 1. Try store (user provided)
     try {
       const state = useModelStore.getState();
@@ -97,7 +108,11 @@ class LLMClient {
     return "https://app-litellmsn66ka.azurewebsites.net";
   }
 
-  private getApiKey(): string | null {
+  private getApiKey(runtimeMode: RuntimeMode): string | null {
+    if (runtimeMode === "adk") {
+      return import.meta.env.VITE_ADK_RUNTIME_API_KEY || null;
+    }
+
     // 1. Try store (user provided)
     try {
       const state = useModelStore.getState();
@@ -111,7 +126,12 @@ class LLMClient {
   }
 
   isConfigured(): boolean {
-    return Boolean(this.getBaseUrl() && this.getApiKey());
+    const runtimeMode = this.getRuntimeMode();
+    const hasBaseUrl = Boolean(this.getBaseUrl(runtimeMode));
+    if (runtimeMode === "adk") {
+      return hasBaseUrl;
+    }
+    return Boolean(hasBaseUrl && this.getApiKey(runtimeMode));
   }
 
   // Get the trainer model from the store (used for evolution, analysis, planning)
@@ -129,6 +149,8 @@ class LLMClient {
     messages: ChatMessage[],
     options: ChatOptions = {}
   ): Promise<string> {
+    const runtimeMode = this.getRuntimeMode();
+
     // Use provided model, or get trainer model from store, or use default
     const model = options.model || this.getTrainerModel();
 
@@ -137,10 +159,15 @@ class LLMClient {
       return this.handleMockRequest(messages);
     }
 
-    const baseUrl = this.getBaseUrl();
-    const apiKey = this.getApiKey();
-    if (!baseUrl || !apiKey) {
-      throw new Error("LLM API not configured. Please set your API Base URL and API Key.");
+    const baseUrl = this.getBaseUrl(runtimeMode);
+    const apiKey = this.getApiKey(runtimeMode);
+    if (!baseUrl) {
+      throw new Error("LLM runtime not configured. Please set an API base URL.");
+    }
+    if (runtimeMode === "litellm" && !apiKey) {
+      throw new Error(
+        "LLM API not configured. Please set your API Base URL and API Key."
+      );
     }
 
     const startTime = Date.now();
@@ -167,12 +194,16 @@ class LLMClient {
     };
 
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (apiKey) {
+        headers.Authorization = `Bearer ${apiKey}`;
+      }
+
       const response = await fetch(`${baseUrl}/v1/chat/completions`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
+        headers,
         body: JSON.stringify(request),
       });
 
