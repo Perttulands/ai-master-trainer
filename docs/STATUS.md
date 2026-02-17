@@ -1,6 +1,6 @@
 # Training Camp - Status
 
-Last updated: December 2024
+Last updated: February 17, 2026
 
 ## System State
 
@@ -8,6 +8,12 @@ Last updated: December 2024
 ```bash
 VITE_LITELLM_API_BASE=https://your-litellm-endpoint
 VITE_LITELLM_API_KEY=your-api-key
+```
+
+Alternative runtime mode:
+```bash
+VITE_LLM_RUNTIME=adk
+VITE_ADK_RUNTIME_BASE=http://localhost:8000
 ```
 
 **Everything is real:**
@@ -30,13 +36,14 @@ VITE_LITELLM_API_KEY=your-api-key
 | Data integrity | Training signal hash is deterministic (removed timestamp from hash) |
 | Persistence | Database save uses chunked Base64 conversion (fixed stack overflow) |
 | UI | Error states displayed instead of "No output yet" |
+| Architecture | Removed deprecated duplicate evolver and unused generator module |
+| Runtime | Added ADK backend runtime mode (`backend/adk_runtime`) with OpenAI-compatible endpoint |
 
 ## Known Issues
 
 | Issue | Impact | Notes |
 |-------|--------|-------|
 | `lineageId` optional in AgentDefinition | Training signal integrity | Spec says required |
-| Multiple evolver implementations | Confusion | `services/agent-evolver.ts` vs deprecated `agents/agent-evolver.ts` |
 | Evolution planner proposes unapplied changes | Learning history pollution | Tool/flow changes planned but skipped |
 | Bundle size 1.15MB | Performance | Exceeds 500KB recommended; needs code-splitting |
 

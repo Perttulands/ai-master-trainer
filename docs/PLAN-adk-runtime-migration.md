@@ -30,11 +30,15 @@ React UI (existing)
   - `VITE_LLM_RUNTIME=adk`
 - Keep existing request/response shape so most frontend code remains unchanged.
 
-### Phase 2: Orchestration Consolidation
+### Phase 2: Orchestration Consolidation (in progress)
 
 - Remove duplicate generator/evolver ownership (`src/agents/*` vs `src/services/*`).
 - Route all model execution through one runtime gateway path.
 - Eliminate stale fallback/mock behavior where it conflicts with production mode.
+
+Progress in this branch:
+- Removed deprecated `src/agents/agent-evolver.ts`.
+- Removed unused duplicate `src/services/agent-generator.ts`.
 
 ### Phase 3: Server-Side Session + Training Signals
 
@@ -54,4 +58,4 @@ React UI (existing)
 - Frontend runtime toggle implemented in `src/api/llm.ts`.
 - Env and README updated for ADK mode.
 - LLM client tests expanded with ADK runtime coverage.
-
+- Deprecated duplicate modules removed as part of phase 2.
