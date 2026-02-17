@@ -1,8 +1,11 @@
 # ADK Runtime (LiteLLM via Google ADK)
 
-This service provides an OpenAI-compatible `POST /v1/chat/completions` endpoint backed by Google ADK + LiteLLM.
+This service provides:
 
-It lets the existing Training Camp frontend switch to ADK runtime without changing request payload shapes.
+- OpenAI-compatible runtime endpoint: `POST /v1/chat/completions`
+- Stateful orchestration API for Training Camp sessions/lineages
+
+Both are backed by Google ADK + LiteLLM.
 
 ## Setup
 
@@ -52,10 +55,15 @@ Orchestration API (stateful):
 
 - `GET /api/sessions`
 - `GET /api/sessions/{session_id}`
+- `GET /api/sessions/{session_id}/history`
 - `POST /api/sessions`
+- `PATCH /api/sessions/{session_id}`
+- `DELETE /api/sessions/{session_id}`
+- `POST /api/sessions/{session_id}/lineages`
 - `POST /api/sessions/{session_id}/run`
 - `POST /api/artifacts/{artifact_id}/evaluate`
 - `POST /api/sessions/{session_id}/iterate`
 - `POST /api/sessions/{session_id}/lineages/{label}/lock`
+- `POST /api/sessions/{session_id}/lineages/{label}/directives`
 
 State is stored in SQLite at `ADK_STATE_DB`.

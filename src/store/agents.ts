@@ -59,6 +59,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const cached = get().agents.get(lineageId);
     if (cached) return cached;
 
+    if (isBackendOrchestrationEnabled()) {
+      return undefined;
+    }
+
     // Try loading from database
     const agent = queries.getAgentByLineage(lineageId);
     if (agent) {

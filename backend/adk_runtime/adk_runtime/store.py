@@ -9,6 +9,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+UNSET = object()
+
 
 def now_ms() -> int:
     return int(time.time() * 1000)
@@ -26,6 +28,7 @@ class SessionRecord:
     constraints: str | None
     input_prompt: str | None
     initial_agent_count: int
+    trainer_messages: list[dict[str, Any]]
     created_at: int
     updated_at: int
 
@@ -55,6 +58,7 @@ class RuntimeStore:
                   constraints TEXT,
                   input_prompt TEXT,
                   initial_agent_count INTEGER NOT NULL DEFAULT 4,
+                  trainer_messages TEXT NOT NULL DEFAULT '[]',
                   created_at INTEGER NOT NULL,
                   updated_at INTEGER NOT NULL
                 );
@@ -116,7 +120,28 @@ class RuntimeStore:
                 ON artifacts(lineage_id, cycle DESC);
                 """
             )
+            self._ensure_column(
+                conn,
+                table_name="sessions",
+                column_name="trainer_messages",
+                column_sql="TEXT NOT NULL DEFAULT '[]'",
+            )
             conn.commit()
+
+    def _ensure_column(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        table_name: str,
+        column_name: str,
+        column_sql: str,
+    ) -> None:
+        row = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        existing_columns = {str(r["name"]) for r in row}
+        if column_name not in existing_columns:
+            conn.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}"
+            )
 
     def create_session(
         self,
@@ -134,8 +159,8 @@ class RuntimeStore:
                 """
                 INSERT INTO sessions (
                   id, name, need, constraints, input_prompt,
-                  initial_agent_count, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  initial_agent_count, trainer_messages, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -144,6 +169,7 @@ class RuntimeStore:
                     constraints,
                     input_prompt,
                     initial_agent_count,
+                    "[]",
                     ts,
                     ts,
                 ),
@@ -156,6 +182,7 @@ class RuntimeStore:
                 constraints=constraints,
                 input_prompt=input_prompt,
                 initial_agent_count=initial_agent_count,
+                trainer_messages=[],
                 created_at=ts,
                 updated_at=ts,
             )
@@ -165,7 +192,7 @@ class RuntimeStore:
             rows = conn.execute(
                 """
                 SELECT id, name, need, constraints, input_prompt,
-                       initial_agent_count, created_at, updated_at
+                       initial_agent_count, trainer_messages, created_at, updated_at
                 FROM sessions
                 ORDER BY updated_at DESC
                 """
@@ -177,7 +204,7 @@ class RuntimeStore:
             row = conn.execute(
                 """
                 SELECT id, name, need, constraints, input_prompt,
-                       initial_agent_count, created_at, updated_at
+                       initial_agent_count, trainer_messages, created_at, updated_at
                 FROM sessions
                 WHERE id = ?
                 """,
@@ -186,6 +213,67 @@ class RuntimeStore:
             if row is None:
                 return None
             return self._session_from_row(row)
+
+    def update_session(
+        self,
+        session_id: str,
+        *,
+        name: str | None | object = UNSET,
+        need: str | None | object = UNSET,
+        constraints: str | None | object = UNSET,
+        input_prompt: str | None | object = UNSET,
+        trainer_messages: list[dict[str, Any]] | None | object = UNSET,
+    ) -> SessionRecord | None:
+        updates: list[str] = ["updated_at = ?"]
+        values: list[Any] = [now_ms()]
+
+        if name is not UNSET:
+            updates.append("name = ?")
+            values.append(name)
+        if need is not UNSET:
+            updates.append("need = ?")
+            values.append(need)
+        if constraints is not UNSET:
+            updates.append("constraints = ?")
+            values.append(constraints)
+        if input_prompt is not UNSET:
+            updates.append("input_prompt = ?")
+            values.append(input_prompt)
+        if trainer_messages is not UNSET:
+            updates.append("trainer_messages = ?")
+            values.append(json.dumps(trainer_messages))
+
+        with self._lock, self._connect() as conn:
+            values.append(session_id)
+            cursor = conn.execute(
+                f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?",
+                tuple(values),
+            )
+            if cursor.rowcount == 0:
+                conn.rollback()
+                return None
+            conn.commit()
+            row = conn.execute(
+                """
+                SELECT id, name, need, constraints, input_prompt,
+                       initial_agent_count, trainer_messages, created_at, updated_at
+                FROM sessions
+                WHERE id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return self._session_from_row(row)
+
+    def delete_session(self, session_id: str) -> bool:
+        with self._lock, self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM sessions WHERE id = ?",
+                (session_id,),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def create_lineage(
         self,
@@ -257,6 +345,42 @@ class RuntimeStore:
             conn.execute(
                 "UPDATE lineages SET is_locked = ? WHERE id = ?",
                 (1 if is_locked else 0, lineage_id),
+            )
+            conn.execute(
+                """
+                UPDATE sessions
+                SET updated_at = ?
+                WHERE id = (SELECT session_id FROM lineages WHERE id = ?)
+                """,
+                (ts, lineage_id),
+            )
+            conn.commit()
+
+    def update_lineage_directives(
+        self,
+        lineage_id: str,
+        *,
+        sticky: list[str] | None = None,
+        oneshot: list[str] | None = None,
+    ) -> None:
+        updates: list[str] = []
+        values: list[Any] = []
+
+        if sticky is not None:
+            updates.append("directive_sticky = ?")
+            values.append(json.dumps(sticky))
+        if oneshot is not None:
+            updates.append("directive_oneshot = ?")
+            values.append(json.dumps(oneshot))
+        if not updates:
+            return
+
+        with self._lock, self._connect() as conn:
+            ts = now_ms()
+            values.append(lineage_id)
+            conn.execute(
+                f"UPDATE lineages SET {', '.join(updates)} WHERE id = ?",
+                tuple(values),
             )
             conn.execute(
                 """
@@ -390,6 +514,19 @@ class RuntimeStore:
                 return None
             return self._artifact_from_row(row)
 
+    def list_artifacts_by_lineage(self, lineage_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, lineage_id, cycle, content, metadata, created_at
+                FROM artifacts
+                WHERE lineage_id = ?
+                ORDER BY cycle DESC
+                """,
+                (lineage_id,),
+            ).fetchall()
+            return [self._artifact_from_row(r) for r in rows]
+
     def upsert_evaluation(
         self, artifact_id: str, score: int, comment: str | None
     ) -> dict[str, Any]:
@@ -502,13 +639,62 @@ class RuntimeStore:
                 "constraints": session.constraints,
                 "inputPrompt": session.input_prompt,
                 "initialAgentCount": session.initial_agent_count,
+                "trainerMessages": session.trainer_messages,
                 "createdAt": session.created_at,
                 "updatedAt": session.updated_at,
             },
             "lineages": lineage_snapshots,
         }
 
+    def build_session_history(self, session_id: str) -> dict[str, Any] | None:
+        session = self.get_session(session_id)
+        if session is None:
+            return None
+
+        lineages = self.list_lineages(session_id)
+        lineage_histories: list[dict[str, Any]] = []
+        for lineage in lineages:
+            artifacts = self.list_artifacts_by_lineage(lineage["id"])
+            artifacts_with_eval = []
+            for artifact in artifacts:
+                artifacts_with_eval.append(
+                    {
+                        **artifact,
+                        "evaluation": self.get_evaluation_for_artifact(artifact["id"]),
+                    }
+                )
+
+            lineage_histories.append(
+                {
+                    "lineage": lineage,
+                    "artifacts": artifacts_with_eval,
+                }
+            )
+
+        return {
+            "session": {
+                "id": session.id,
+                "name": session.name,
+                "need": session.need,
+                "constraints": session.constraints,
+                "inputPrompt": session.input_prompt,
+                "initialAgentCount": session.initial_agent_count,
+                "trainerMessages": session.trainer_messages,
+                "createdAt": session.created_at,
+                "updatedAt": session.updated_at,
+            },
+            "histories": lineage_histories,
+        }
+
     def _session_from_row(self, row: sqlite3.Row) -> SessionRecord:
+        raw_messages = row["trainer_messages"] if "trainer_messages" in row.keys() else "[]"
+        try:
+            trainer_messages = json.loads(raw_messages or "[]")
+        except (TypeError, json.JSONDecodeError):
+            trainer_messages = []
+        if not isinstance(trainer_messages, list):
+            trainer_messages = []
+
         return SessionRecord(
             id=str(row["id"]),
             name=str(row["name"]),
@@ -516,6 +702,7 @@ class RuntimeStore:
             constraints=row["constraints"],
             input_prompt=row["input_prompt"],
             initial_agent_count=int(row["initial_agent_count"]),
+            trainer_messages=trainer_messages,
             created_at=int(row["created_at"]),
             updated_at=int(row["updated_at"]),
         )

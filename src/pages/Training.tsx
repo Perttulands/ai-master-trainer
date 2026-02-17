@@ -35,7 +35,7 @@ import {
   type TrainerChatContext,
 } from "../agents/master-trainer";
 import { generateAgent } from "../agents/agent-generator";
-import { updateSession } from "../db/queries";
+import { isBackendOrchestrationEnabled } from "../api/orchestration";
 import type { TrainerMessage, TrainerAction } from "../types";
 import type { AgentDefinition } from "../types/agent";
 import { generateId } from "../utils/id";
@@ -65,7 +65,7 @@ export function Training() {
   const { agents, loadAgentsForSession, getAgentForLineage } = useAgentStore();
   const { loadContext } = useContextStore();
 
-  const { setCurrentSession } = useSessionStore();
+  const { setCurrentSession, updateSession } = useSessionStore();
   const [messages, setMessages] = useState<TrainerMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [viewingAgent, setViewingAgent] = useState<AgentDefinition | null>(
@@ -128,7 +128,7 @@ export function Training() {
     // Update local session state
     setCurrentSession({ ...session, inputPrompt: newPrompt });
     setIsEditingPrompt(false);
-  }, [sessionId, session, editedPrompt, setCurrentSession]);
+  }, [sessionId, session, editedPrompt, setCurrentSession, updateSession]);
 
   const handleCancelEditPrompt = useCallback(() => {
     setIsEditingPrompt(false);
@@ -163,6 +163,12 @@ export function Training() {
 
     setIsAddingAgent(true);
     try {
+      if (isBackendOrchestrationEnabled()) {
+        await addLineage(sessionId, { label: nextLabel });
+        loadAgentsForSession(sessionId);
+        return;
+      }
+
       // Generate content for the new lineage
       const lineageConfig = await generateSingleLineage(
         session.need,
@@ -262,8 +268,9 @@ export function Training() {
 
       const newMessages = [...messages, userMessage];
       setMessages(newMessages);
-      if (sessionId) {
+      if (sessionId && session) {
         updateSession(sessionId, { trainerMessages: newMessages });
+        setCurrentSession({ ...session, trainerMessages: newMessages });
       }
       setIsChatLoading(true);
 
@@ -286,8 +293,9 @@ export function Training() {
         const response = await respondToChat(content, context);
         const updatedMessages = [...newMessages, response];
         setMessages(updatedMessages);
-        if (sessionId) {
+        if (sessionId && session) {
           updateSession(sessionId, { trainerMessages: updatedMessages });
+          setCurrentSession({ ...session, trainerMessages: updatedMessages });
         }
       } catch (error) {
         console.error("Chat error:", error);
@@ -295,15 +303,16 @@ export function Training() {
         setIsChatLoading(false);
       }
     },
-    [session, lineages, messages, sessionId]
+    [session, lineages, messages, sessionId, updateSession, setCurrentSession]
   );
 
   const handleResetChat = useCallback(() => {
-    if (sessionId) {
+    if (sessionId && session) {
       setMessages([]);
       updateSession(sessionId, { trainerMessages: [] });
+      setCurrentSession({ ...session, trainerMessages: [] });
     }
-  }, [sessionId]);
+  }, [sessionId, session, updateSession, setCurrentSession]);
 
   // Handler to apply trainer-proposed actions
   const handleApplyActions = useCallback(

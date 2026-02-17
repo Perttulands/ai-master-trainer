@@ -40,7 +40,7 @@ Progress in this branch:
 - Removed deprecated `src/agents/agent-evolver.ts`.
 - Removed unused duplicate `src/services/agent-generator.ts`.
 
-### Phase 3: Server-Side Session + Training Signals
+### Phase 3: Server-Side Session + Training Signals (mostly complete)
 
 - Move critical session/lineage/evolution records to backend persistence.
 - Keep append-only training events for replay/export.
@@ -50,7 +50,9 @@ Progress in this branch:
 - Added backend orchestration API endpoints in `backend/adk_runtime/adk_runtime/main.py`.
 - Added persistent SQLite backend state in `backend/adk_runtime/adk_runtime/store.py`.
 - Added lock/run/evaluate/iterate endpoints for server-side training loops.
-- Added frontend orchestration adapter (`src/api/orchestration.ts`) and backend-mode store wiring.
+- Added session patch/delete, add-lineage, directives, and history endpoints.
+- Added frontend orchestration adapter (`src/api/orchestration.ts`) and backend-mode store/page wiring.
+- Backend mode now persists training chat + input prompt updates through backend session APIs.
 
 ### Phase 4: Cutover
 

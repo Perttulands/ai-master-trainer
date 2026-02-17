@@ -1,4 +1,10 @@
-import type { Session, LineageWithArtifact } from "../types";
+import type {
+  Session,
+  Lineage,
+  Artifact,
+  Evaluation,
+  LineageWithArtifact,
+} from "../types";
 import type { AgentDefinition, AgentMemoryConfig } from "../types/agent";
 
 interface BackendResponseError {
@@ -27,6 +33,16 @@ export interface OrchestrationSnapshot {
   session: Session;
   lineages: LineageWithArtifact[];
   agentsByLineage: Map<string, AgentDefinition>;
+}
+
+export interface BackendLineageHistory {
+  lineage: Lineage;
+  artifacts: (Artifact & { evaluation: Evaluation | null })[];
+}
+
+export interface BackendSessionHistory {
+  session: Session;
+  histories: BackendLineageHistory[];
 }
 
 interface RawBackendAgent {
@@ -89,6 +105,16 @@ interface RawBackendSnapshot {
   };
   lineages: RawBackendLineage[];
   regeneratedLabels?: string[];
+}
+
+interface RawBackendHistoryLineage {
+  lineage: RawBackendLineage;
+  artifacts: (RawBackendArtifact & { evaluation?: RawBackendEvaluation | null })[];
+}
+
+interface RawBackendHistoryResponse {
+  session: RawBackendSnapshot["session"];
+  histories: RawBackendHistoryLineage[];
 }
 
 function getOrchestrationBaseUrl(): string {
@@ -261,6 +287,121 @@ export async function createBackendSession(
   return toSnapshot(raw);
 }
 
+export async function updateBackendSession(
+  sessionId: string,
+  updates: Partial<
+    Pick<Session, "name" | "need" | "constraints" | "inputPrompt" | "trainerMessages">
+  >
+): Promise<Session> {
+  const payload: Record<string, unknown> = {};
+  if (updates.name !== undefined) payload.name = updates.name;
+  if (updates.need !== undefined) payload.need = updates.need;
+  if (updates.constraints !== undefined) payload.constraints = updates.constraints;
+  if (updates.inputPrompt !== undefined) payload.inputPrompt = updates.inputPrompt;
+  if (updates.trainerMessages !== undefined) payload.trainerMessages = updates.trainerMessages;
+
+  const raw = await requestJson<{ session: RawBackendSnapshot["session"] }>(
+    `/api/sessions/${sessionId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }
+  );
+
+  return {
+    id: raw.session.id,
+    name: raw.session.name,
+    need: raw.session.need,
+    constraints: raw.session.constraints ?? null,
+    inputPrompt: raw.session.inputPrompt ?? null,
+    initialAgentCount: raw.session.initialAgentCount ?? 4,
+    trainerMessages: raw.session.trainerMessages ?? [],
+    createdAt: raw.session.createdAt,
+    updatedAt: raw.session.updatedAt,
+  };
+}
+
+export async function deleteBackendSession(sessionId: string): Promise<void> {
+  await requestJson<{ deleted: boolean }>(`/api/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getBackendSessionHistory(
+  sessionId: string
+): Promise<BackendSessionHistory> {
+  const raw = await requestJson<RawBackendHistoryResponse>(
+    `/api/sessions/${sessionId}/history`
+  );
+
+  const session: Session = {
+    id: raw.session.id,
+    name: raw.session.name,
+    need: raw.session.need,
+    constraints: raw.session.constraints ?? null,
+    inputPrompt: raw.session.inputPrompt ?? null,
+    initialAgentCount: raw.session.initialAgentCount ?? 4,
+    trainerMessages: raw.session.trainerMessages ?? [],
+    createdAt: raw.session.createdAt,
+    updatedAt: raw.session.updatedAt,
+  };
+
+  const histories: BackendLineageHistory[] = (raw.histories || []).map((entry) => {
+    const lineage: Lineage = {
+      id: entry.lineage.id,
+      sessionId: entry.lineage.sessionId,
+      label: entry.lineage.label,
+      strategyTag: entry.lineage.strategyTag ?? null,
+      isLocked: Boolean(entry.lineage.isLocked),
+      directiveSticky: entry.lineage.directiveSticky ?? null,
+      directiveOneshot: entry.lineage.directiveOneshot ?? null,
+      createdAt: entry.lineage.createdAt,
+    };
+
+    const artifacts = (entry.artifacts || []).map((artifactRaw) => ({
+      id: artifactRaw.id,
+      lineageId: artifactRaw.lineageId,
+      cycle: artifactRaw.cycle,
+      content: artifactRaw.content,
+      metadata: artifactRaw.metadata ?? null,
+      createdAt: artifactRaw.createdAt,
+      evaluation: artifactRaw.evaluation
+        ? {
+            id: artifactRaw.evaluation.id,
+            artifactId: artifactRaw.evaluation.artifactId,
+            score: artifactRaw.evaluation.score,
+            comment: artifactRaw.evaluation.comment ?? null,
+            createdAt: artifactRaw.evaluation.createdAt,
+          }
+        : null,
+    }));
+
+    return { lineage, artifacts };
+  });
+
+  return { session, histories };
+}
+
+export async function addBackendLineage(
+  sessionId: string,
+  input: {
+    label: string;
+    strategyTag?: string;
+    strategyDescription?: string;
+    strategyStyle?: string;
+    temperature?: number;
+  }
+): Promise<OrchestrationSnapshot> {
+  const raw = await requestJson<RawBackendSnapshot>(
+    `/api/sessions/${sessionId}/lineages`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    }
+  );
+  return toSnapshot(raw);
+}
+
 export async function runBackendLineage(
   sessionId: string,
   lineageLabel: string,
@@ -305,5 +446,26 @@ export async function setBackendLineageLock(
   await requestJson(`/api/sessions/${sessionId}/lineages/${label}/lock`, {
     method: "POST",
     body: JSON.stringify({ isLocked }),
+  });
+}
+
+export async function updateBackendLineageDirectives(
+  sessionId: string,
+  label: string,
+  updates: {
+    directiveSticky?: string[] | null;
+    directiveOneshot?: string[] | null;
+  }
+): Promise<void> {
+  const payload: Record<string, unknown> = {};
+  if (updates.directiveSticky !== undefined) {
+    payload.directiveSticky = updates.directiveSticky;
+  }
+  if (updates.directiveOneshot !== undefined) {
+    payload.directiveOneshot = updates.directiveOneshot;
+  }
+  await requestJson(`/api/sessions/${sessionId}/lineages/${label}/directives`, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }

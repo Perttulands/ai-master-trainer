@@ -6,9 +6,17 @@ import { Header } from '../components/layout/Header';
 import { LLMDebugPanel } from '../components/debug';
 import { useSessionStore } from '../store/session';
 import { useLLMDebugStore } from '../store/llm-debug';
-import { getArtifactsByLineage, getLineagesBySession, getEvaluationForArtifact } from '../db/queries';
+import {
+  getArtifactsByLineage,
+  getLineagesBySession,
+  getEvaluationForArtifact,
+} from '../db/queries';
 import type { Lineage, Artifact, Evaluation } from '../types';
 import { cn } from '../utils/cn';
+import {
+  isBackendOrchestrationEnabled,
+  getBackendSessionHistory,
+} from '../api/orchestration';
 
 type HistoryTab = 'artifacts' | 'debug';
 
@@ -33,10 +41,32 @@ export function History() {
   const errorCount = sessionDebugEntries.filter((e) => e.status === 'error').length;
 
   useEffect(() => {
-    if (id) {
-      loadSession(id);
+    if (!id) return;
 
-      // Load lineages and their artifacts
+    let cancelled = false;
+    loadSession(id);
+
+    const loadHistory = async () => {
+      if (isBackendOrchestrationEnabled()) {
+        try {
+          const backendHistory = await getBackendSessionHistory(id);
+          if (cancelled) return;
+          setHistories(backendHistory.histories);
+          if (backendHistory.histories.length > 0) {
+            setSelectedLineage(backendHistory.histories[0].lineage.id);
+          } else {
+            setSelectedLineage(null);
+          }
+        } catch (error) {
+          if (!cancelled) {
+            console.error('Failed to load backend history:', error);
+            setHistories([]);
+            setSelectedLineage(null);
+          }
+        }
+        return;
+      }
+
       const lineages = getLineagesBySession(id);
       const lineageHistories = lineages.map((lineage) => {
         const artifacts = getArtifactsByLineage(lineage.id);
@@ -49,10 +79,17 @@ export function History() {
         };
       });
       setHistories(lineageHistories);
-
       if (lineageHistories.length > 0) {
         setSelectedLineage(lineageHistories[0].lineage.id);
+      } else {
+        setSelectedLineage(null);
       }
+    };
+
+    void loadHistory();
+
+    return () => {
+      cancelled = true;
     }
   }, [id, loadSession]);
 

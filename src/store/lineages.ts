@@ -19,6 +19,8 @@ import {
   evaluateBackendArtifact,
   iterateBackendSession,
   runBackendLineage,
+  addBackendLineage,
+  updateBackendLineageDirectives,
 } from "../api/orchestration";
 import { useAgentStore } from "./agents";
 import { useSessionStore } from "./session";
@@ -62,8 +64,8 @@ interface LineageState {
     sessionId: string,
     config: {
       label: LineageLabel;
-      strategyTag: string;
-      agent: AgentDefinition;
+      strategyTag?: string;
+      agent?: AgentDefinition;
     },
     testInput?: ExecutionInput
   ) => Promise<void>;
@@ -305,6 +307,19 @@ export const useLineageStore = create<LineageState>((set, get) => {
     set({ isLoading: true });
 
     try {
+      if (isBackendOrchestrationEnabled()) {
+        const snapshot = await addBackendLineage(sessionId, {
+          label: config.label,
+          strategyTag: config.strategyTag,
+        });
+        applyBackendSnapshot(snapshot);
+        return;
+      }
+
+      if (!config.agent) {
+        throw new Error("Agent definition is required in local orchestration mode.");
+      }
+
       // Get session for test input (use inputPrompt if set, otherwise fallback to need)
       const session = queries.getSession(sessionId);
       const input =
@@ -563,6 +578,30 @@ export const useLineageStore = create<LineageState>((set, get) => {
 
     const newDirectives = [...currentDirectives, content];
 
+    if (isBackendOrchestrationEnabled()) {
+      set((state) => ({
+        lineages: state.lineages.map((l) =>
+          l.id === lineageId
+            ? {
+                ...l,
+                directiveSticky:
+                  type === "sticky" ? newDirectives : l.directiveSticky,
+                directiveOneshot:
+                  type === "oneshot" ? newDirectives : l.directiveOneshot,
+              }
+            : l
+        ),
+      }));
+
+      updateBackendLineageDirectives(lineage.sessionId, lineage.label, {
+        directiveSticky: type === "sticky" ? newDirectives : undefined,
+        directiveOneshot: type === "oneshot" ? newDirectives : undefined,
+      }).catch((e) => {
+        set({ error: (e as Error).message });
+      });
+      return;
+    }
+
     if (type === "sticky") {
       queries.updateLineage(lineageId, { directiveSticky: newDirectives });
     } else {
@@ -599,6 +638,30 @@ export const useLineageStore = create<LineageState>((set, get) => {
 
     const newDirectives = currentDirectives.filter((_, i) => i !== index);
 
+    if (isBackendOrchestrationEnabled()) {
+      set((state) => ({
+        lineages: state.lineages.map((l) =>
+          l.id === lineageId
+            ? {
+                ...l,
+                directiveSticky:
+                  type === "sticky" ? newDirectives : l.directiveSticky,
+                directiveOneshot:
+                  type === "oneshot" ? newDirectives : l.directiveOneshot,
+              }
+            : l
+        ),
+      }));
+
+      updateBackendLineageDirectives(lineage.sessionId, lineage.label, {
+        directiveSticky: type === "sticky" ? newDirectives : undefined,
+        directiveOneshot: type === "oneshot" ? newDirectives : undefined,
+      }).catch((e) => {
+        set({ error: (e as Error).message });
+      });
+      return;
+    }
+
     if (type === "sticky") {
       queries.updateLineage(lineageId, { directiveSticky: newDirectives });
     } else {
@@ -621,6 +684,31 @@ export const useLineageStore = create<LineageState>((set, get) => {
   },
 
   clearDirectives: (lineageId: string, type: "sticky" | "oneshot") => {
+    const lineage = get().lineages.find((l) => l.id === lineageId);
+    if (!lineage) return;
+
+    if (isBackendOrchestrationEnabled()) {
+      set((state) => ({
+        lineages: state.lineages.map((l) =>
+          l.id === lineageId
+            ? {
+                ...l,
+                directiveSticky: type === "sticky" ? [] : l.directiveSticky,
+                directiveOneshot: type === "oneshot" ? [] : l.directiveOneshot,
+              }
+            : l
+        ),
+      }));
+
+      updateBackendLineageDirectives(lineage.sessionId, lineage.label, {
+        directiveSticky: type === "sticky" ? [] : undefined,
+        directiveOneshot: type === "oneshot" ? [] : undefined,
+      }).catch((e) => {
+        set({ error: (e as Error).message });
+      });
+      return;
+    }
+
     if (type === "sticky") {
       queries.updateLineage(lineageId, { directiveSticky: null });
     } else {

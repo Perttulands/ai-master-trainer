@@ -5,6 +5,8 @@ import {
   isBackendOrchestrationEnabled,
   listBackendSessions,
   getBackendSessionSnapshot,
+  updateBackendSession,
+  deleteBackendSession,
 } from '../api/orchestration';
 
 interface SessionState {
@@ -17,7 +19,12 @@ interface SessionState {
   loadSessions: () => void;
   loadSession: (id: string) => void;
   createSession: (input: CreateSessionInput) => Session;
-  updateSession: (id: string, updates: Partial<Pick<Session, 'name' | 'need' | 'constraints'>>) => void;
+  updateSession: (
+    id: string,
+    updates: Partial<
+      Pick<Session, 'name' | 'need' | 'constraints' | 'inputPrompt' | 'trainerMessages'>
+    >
+  ) => void;
   deleteSession: (id: string) => void;
   setCurrentSession: (session: Session | null) => void;
 }
@@ -84,6 +91,26 @@ export const useSessionStore = create<SessionState>((set) => ({
   },
 
   updateSession: (id: string, updates) => {
+    if (isBackendOrchestrationEnabled()) {
+      updateBackendSession(id, updates)
+        .then((updatedSession) => {
+          set((state) => ({
+            sessions: state.sessions.map((s) =>
+              s.id === id ? updatedSession : s
+            ),
+            currentSession:
+              state.currentSession?.id === id
+                ? updatedSession
+                : state.currentSession,
+            error: null,
+          }));
+        })
+        .catch((e) => {
+          set({ error: (e as Error).message });
+        });
+      return;
+    }
+
     queries.updateSession(id, updates);
     const updatedSession = queries.getSession(id);
     set((state) => ({
@@ -93,6 +120,21 @@ export const useSessionStore = create<SessionState>((set) => ({
   },
 
   deleteSession: (id: string) => {
+    if (isBackendOrchestrationEnabled()) {
+      deleteBackendSession(id)
+        .then(() => {
+          set((state) => ({
+            sessions: state.sessions.filter((s) => s.id !== id),
+            currentSession: state.currentSession?.id === id ? null : state.currentSession,
+            error: null,
+          }));
+        })
+        .catch((e) => {
+          set({ error: (e as Error).message });
+        });
+      return;
+    }
+
     queries.deleteSession(id);
     set((state) => ({
       sessions: state.sessions.filter((s) => s.id !== id),

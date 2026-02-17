@@ -419,6 +419,83 @@ async def _evolve_system_prompt(
     )
 
 
+def _resolve_strategy(
+    *,
+    label: str,
+    tag: str | None,
+    description: str | None,
+    style: str | None,
+    temperature: float | None,
+) -> StrategyConfig:
+    base = STRATEGIES.get(label)
+    return StrategyConfig(
+        tag=(tag or (base.tag if base else f"Lineage {label}")).strip(),
+        description=(description or (base.description if base else f"Strategy for lineage {label}")).strip(),
+        style=(style or (base.style if base else "balanced and adaptive")).strip(),
+        temperature=temperature if temperature is not None else (base.temperature if base else 0.7),
+    )
+
+
+async def _create_lineage_and_initial_artifact(
+    *,
+    session_id: str,
+    need: str,
+    constraints: str | None,
+    input_prompt: str | None,
+    label: str,
+    strategy: StrategyConfig,
+    model: str,
+) -> None:
+    lineage = STORE.create_lineage(
+        session_id=session_id,
+        label=label,
+        strategy_tag=strategy.tag,
+    )
+
+    system_prompt = await _generate_system_prompt(
+        need=need,
+        constraints=constraints,
+        strategy=strategy,
+        model=model,
+    )
+
+    agent = STORE.create_agent(
+        lineage_id=lineage["id"],
+        version=1,
+        name=f"{strategy.tag} Agent",
+        description=strategy.description,
+        system_prompt=system_prompt.strip(),
+        parameters={
+            "model": model,
+            "temperature": strategy.temperature,
+            "maxTokens": 2048,
+            "topP": 0.95,
+        },
+    )
+
+    run_input = _default_input_prompt(need, input_prompt)
+    output, duration_ms = await _execute_agent(
+        model=model,
+        system_prompt=agent["systemPrompt"],
+        user_input=run_input,
+        temperature=float(agent["parameters"]["temperature"]),
+        max_tokens=int(agent["parameters"]["maxTokens"]),
+    )
+
+    STORE.create_artifact(
+        lineage_id=lineage["id"],
+        cycle=1,
+        content=output,
+        metadata={
+            "agentId": agent["id"],
+            "agentVersion": 1,
+            "executionSuccess": True,
+            "executionTimeMs": duration_ms,
+            "inputUsed": run_input,
+        },
+    )
+
+
 class CreateSessionRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -461,6 +538,37 @@ class SetLineageLockRequest(BaseModel):
     is_locked: bool = Field(alias="isLocked")
 
 
+class UpdateSessionRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str | None = None
+    need: str | None = None
+    constraints: str | None = None
+    input_prompt: str | None = Field(default=None, alias="inputPrompt")
+    trainer_messages: list[dict[str, Any]] | None = Field(
+        default=None,
+        alias="trainerMessages",
+    )
+
+
+class AddLineageRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    label: str
+    strategy_tag: str | None = Field(default=None, alias="strategyTag")
+    strategy_description: str | None = Field(default=None, alias="strategyDescription")
+    strategy_style: str | None = Field(default=None, alias="strategyStyle")
+    temperature: float | None = None
+    model: str | None = None
+
+
+class UpdateLineageDirectivesRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    directive_sticky: list[str] | None = Field(default=None, alias="directiveSticky")
+    directive_oneshot: list[str] | None = Field(default=None, alias="directiveOneshot")
+
+
 @app.get("/api/sessions")
 async def list_sessions() -> dict[str, Any]:
     sessions = STORE.list_sessions()
@@ -489,6 +597,65 @@ async def get_session(session_id: str) -> dict[str, Any]:
     return snapshot
 
 
+@app.get("/api/sessions/{session_id}/history")
+async def get_session_history(session_id: str) -> dict[str, Any]:
+    history = STORE.build_session_history(session_id)
+    if history is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+    return history
+
+
+@app.patch("/api/sessions/{session_id}")
+async def patch_session(
+    session_id: str, request: UpdateSessionRequest
+) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    provided = request.model_fields_set
+
+    if "name" in provided:
+        updates["name"] = (request.name or "").strip()
+    if "need" in provided:
+        updates["need"] = (request.need or "").strip()
+    if "constraints" in provided:
+        updates["constraints"] = request.constraints.strip() if request.constraints else None
+    if "input_prompt" in provided:
+        updates["input_prompt"] = request.input_prompt.strip() if request.input_prompt else None
+    if "trainer_messages" in provided:
+        updates["trainer_messages"] = request.trainer_messages or []
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No session updates provided.")
+    if "name" in updates and not updates["name"]:
+        raise HTTPException(status_code=400, detail="Session name cannot be empty.")
+    if "need" in updates and not updates["need"]:
+        raise HTTPException(status_code=400, detail="Session need cannot be empty.")
+
+    session = STORE.update_session(session_id, **updates)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+    return {
+        "session": {
+            "id": session.id,
+            "name": session.name,
+            "need": session.need,
+            "constraints": session.constraints,
+            "inputPrompt": session.input_prompt,
+            "initialAgentCount": session.initial_agent_count,
+            "trainerMessages": session.trainer_messages,
+            "createdAt": session.created_at,
+            "updatedAt": session.updated_at,
+        }
+    }
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str) -> dict[str, bool]:
+    deleted = STORE.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+    return {"deleted": True}
+
+
 @app.post("/api/sessions")
 async def create_session(request: CreateSessionRequest) -> dict[str, Any]:
     custom_strategies = request.strategies or []
@@ -505,76 +672,35 @@ async def create_session(request: CreateSessionRequest) -> dict[str, Any]:
         initial_agent_count=count,
     )
 
-    labels = _pick_labels(count) if not custom_strategies else [s.label.strip().upper() for s in custom_strategies]
+    labels = (
+        _pick_labels(count)
+        if not custom_strategies
+        else [s.label.strip().upper() for s in custom_strategies]
+    )
     custom_by_label = {s.label.strip().upper(): s for s in custom_strategies}
-    base_input = _default_input_prompt(session.need, session.input_prompt)
+    for label in labels:
+        if label not in STRATEGIES:
+            raise HTTPException(status_code=400, detail=f"Unsupported lineage label: {label}")
+    if len(set(labels)) != len(labels):
+        raise HTTPException(status_code=400, detail="Duplicate lineage labels are not allowed.")
 
     async def create_lineage_with_agent(label: str) -> None:
-        strategy = STRATEGIES.get(label)
         custom = custom_by_label.get(label)
-        if strategy is None and custom is None:
-            raise RuntimeError(f"Unknown strategy label: {label}")
-
-        strategy_name = custom.name if custom else strategy.tag
-        strategy_description = custom.description if custom else strategy.description
-        strategy_style = custom.style if custom else strategy.style
-        strategy_temp = (
-            custom.temperature
-            if custom and custom.temperature is not None
-            else (strategy.temperature if strategy else 0.7)
-        )
-
-        lineage = STORE.create_lineage(
-            session_id=session.id,
+        strategy = _resolve_strategy(
             label=label,
-            strategy_tag=strategy_name,
+            tag=custom.name if custom else None,
+            description=custom.description if custom else None,
+            style=custom.style if custom else None,
+            temperature=custom.temperature if custom else None,
         )
-
-        system_prompt = await _generate_system_prompt(
+        await _create_lineage_and_initial_artifact(
+            session_id=session.id,
             need=session.need,
             constraints=session.constraints,
-            strategy=StrategyConfig(
-                tag=strategy_name,
-                description=strategy_description,
-                style=strategy_style,
-                temperature=strategy_temp,
-            ),
+            input_prompt=session.input_prompt,
+            label=label,
+            strategy=strategy,
             model=model,
-        )
-
-        agent = STORE.create_agent(
-            lineage_id=lineage["id"],
-            version=1,
-            name=f"{strategy_name} Agent",
-            description=strategy_description,
-            system_prompt=system_prompt.strip(),
-            parameters={
-                "model": model,
-                "temperature": strategy_temp,
-                "maxTokens": 2048,
-                "topP": 0.95,
-            },
-        )
-
-        output, duration_ms = await _execute_agent(
-            model=model,
-            system_prompt=agent["systemPrompt"],
-            user_input=base_input,
-            temperature=float(agent["parameters"]["temperature"]),
-            max_tokens=int(agent["parameters"]["maxTokens"]),
-        )
-
-        STORE.create_artifact(
-            lineage_id=lineage["id"],
-            cycle=1,
-            content=output,
-            metadata={
-                "agentId": agent["id"],
-                "agentVersion": 1,
-                "executionSuccess": True,
-                "executionTimeMs": duration_ms,
-                "inputUsed": base_input,
-            },
         )
 
     try:
@@ -585,6 +711,47 @@ async def create_session(request: CreateSessionRequest) -> dict[str, Any]:
     snapshot = STORE.build_session_snapshot(session.id)
     if snapshot is None:
         raise HTTPException(status_code=500, detail="Session created but snapshot could not be loaded.")
+    return snapshot
+
+
+@app.post("/api/sessions/{session_id}/lineages")
+async def add_lineage(
+    session_id: str, request: AddLineageRequest
+) -> dict[str, Any]:
+    session = STORE.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+
+    label = request.label.strip().upper()
+    if label not in STRATEGIES:
+        raise HTTPException(status_code=400, detail=f"Unsupported lineage label: {label}")
+    if STORE.get_lineage_by_label(session_id, label) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Lineage {label} already exists in session {session_id}.",
+        )
+
+    model = _resolve_runtime_model(request.model)
+    strategy = _resolve_strategy(
+        label=label,
+        tag=request.strategy_tag,
+        description=request.strategy_description,
+        style=request.strategy_style,
+        temperature=request.temperature,
+    )
+    await _create_lineage_and_initial_artifact(
+        session_id=session.id,
+        need=session.need,
+        constraints=session.constraints,
+        input_prompt=session.input_prompt,
+        label=label,
+        strategy=strategy,
+        model=model,
+    )
+
+    snapshot = STORE.build_session_snapshot(session_id)
+    if snapshot is None:
+        raise HTTPException(status_code=500, detail="Lineage added but session could not be loaded.")
     return snapshot
 
 
@@ -742,5 +909,35 @@ async def set_lineage_lock(
         raise HTTPException(status_code=404, detail=f"Lineage {label} not found.")
 
     STORE.set_lineage_locked(lineage["id"], request.is_locked)
+    updated = STORE.get_lineage_by_label(session_id, label.strip().upper())
+    return {"lineage": updated}
+
+
+@app.post("/api/sessions/{session_id}/lineages/{label}/directives")
+async def update_lineage_directives(
+    session_id: str,
+    label: str,
+    request: UpdateLineageDirectivesRequest,
+) -> dict[str, Any]:
+    lineage = STORE.get_lineage_by_label(session_id, label.strip().upper())
+    if lineage is None:
+        raise HTTPException(status_code=404, detail=f"Lineage {label} not found.")
+
+    provided = request.model_fields_set
+    if not provided:
+        raise HTTPException(status_code=400, detail="No directive updates provided.")
+
+    sticky: list[str] | None = None
+    oneshot: list[str] | None = None
+    if "directive_sticky" in provided:
+        sticky = [d.strip() for d in (request.directive_sticky or []) if d.strip()]
+    if "directive_oneshot" in provided:
+        oneshot = [d.strip() for d in (request.directive_oneshot or []) if d.strip()]
+
+    STORE.update_lineage_directives(
+        lineage["id"],
+        sticky=sticky,
+        oneshot=oneshot,
+    )
     updated = STORE.get_lineage_by_label(session_id, label.strip().upper())
     return {"lineage": updated}

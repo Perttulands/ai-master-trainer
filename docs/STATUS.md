@@ -43,7 +43,7 @@ VITE_ORCHESTRATION_MODE=backend
 | UI | Error states displayed instead of "No output yet" |
 | Architecture | Removed deprecated duplicate evolver and unused generator module |
 | Runtime | Added ADK backend runtime mode (`backend/adk_runtime`) with OpenAI-compatible endpoint |
-| Orchestration | Added backend session/run/evaluate/iterate API and frontend backend-mode adapter |
+| Orchestration | Added backend session patch/delete, add-lineage, directives, history, run/evaluate/iterate APIs plus frontend backend-mode wiring |
 
 ## Known Issues
 
