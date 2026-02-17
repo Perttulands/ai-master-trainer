@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Button, ModelSelector, ApiKeyModal } from "../ui";
 import type { Session } from "../../types";
-import { isLLMConfigured } from "../../api/llm";
+import { isLLMConfigured, getLLMRuntimeMode } from "../../api/llm";
 import { useModelStore } from "../../store/model";
 import { cn } from "../../utils/cn";
 
@@ -37,6 +37,7 @@ export function Header({
   useModelStore((state) => state.apiKey);
 
   const llmConnected = isLLMConfigured();
+  const runtimeMode = getLLMRuntimeMode();
 
   return (
     <header className="bg-white border-b border-gray-200 px-4 py-3">
@@ -67,14 +68,18 @@ export function Header({
                 ) : (
                   <ZapOff className="w-3 h-3" />
                 )}
-                {llmConnected ? "LLM Connected" : "Mock Mode"}
+                {llmConnected
+                  ? `LLM Connected (${runtimeMode.toUpperCase()})`
+                  : runtimeMode === "adk"
+                    ? "ADK Runtime Offline"
+                    : "LLM Not Configured"}
               </div>
               {llmConnected ? (
                 <div className="flex items-center gap-2">
                   <ModelSelector mode="trainer" />
                   <ModelSelector mode="agent" />
                 </div>
-              ) : (
+              ) : runtimeMode === "litellm" ? (
                 <Button
                   variant="primary"
                   size="sm"
@@ -84,7 +89,7 @@ export function Header({
                   <Key className="w-4 h-4 mr-2" />
                   Set API Key
                 </Button>
-              )}
+              ) : null}
             </>
           )}
           {session && (
@@ -104,7 +109,7 @@ export function Header({
                 <ModelSelector mode="trainer" />
                 <ModelSelector mode="agent" />
               </div>
-            ) : (
+            ) : runtimeMode === "litellm" ? (
               <Button
                 variant="primary"
                 size="sm"
@@ -114,7 +119,7 @@ export function Header({
                 <Key className="w-4 h-4 mr-2" />
                 Set API Key
               </Button>
-            )}
+            ) : null}
             <div className="h-6 w-px bg-gray-200" />
             <Button
               variant="secondary"

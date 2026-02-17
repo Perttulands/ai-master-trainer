@@ -44,7 +44,7 @@ const knowledgeQueryTool: ToolImplementation = {
       return {
         success: false,
         output: null,
-        error: 'LLM not configured. Set VITE_LITELLM_API_BASE and VITE_LITELLM_API_KEY.',
+        error: 'LLM not configured for selected runtime. Set runtime environment variables.',
       };
     }
 
@@ -149,7 +149,7 @@ const brainstormTool: ToolImplementation = {
       return {
         success: false,
         output: null,
-        error: 'LLM not configured. Set VITE_LITELLM_API_BASE and VITE_LITELLM_API_KEY.',
+        error: 'LLM not configured for selected runtime. Set runtime environment variables.',
       };
     }
 
@@ -238,7 +238,7 @@ const analyzeDataTool: ToolImplementation = {
       return {
         success: false,
         output: null,
-        error: 'LLM not configured. Set VITE_LITELLM_API_BASE and VITE_LITELLM_API_KEY.',
+        error: 'LLM not configured for selected runtime. Set runtime environment variables.',
       };
     }
 
@@ -324,7 +324,7 @@ const summarizeTool: ToolImplementation = {
       return {
         success: false,
         output: null,
-        error: 'LLM not configured. Set VITE_LITELLM_API_BASE and VITE_LITELLM_API_KEY.',
+        error: 'LLM not configured for selected runtime. Set runtime environment variables.',
       };
     }
 

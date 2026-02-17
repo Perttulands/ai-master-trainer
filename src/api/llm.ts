@@ -378,3 +378,8 @@ export function getAgentModelId(): string {
 export function getCurrentModelId(): string {
   return getTrainerModelId();
 }
+
+export function getLLMRuntimeMode(): RuntimeMode {
+  const mode = import.meta.env.VITE_LLM_RUNTIME?.toLowerCase();
+  return mode === "adk" ? "adk" : "litellm";
+}

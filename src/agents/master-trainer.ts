@@ -549,7 +549,7 @@ Key elements this artifact would include:
 - Practical, actionable content
 - Ready for immediate use${constraintNote}
 
-To enable AI-powered generation, configure VITE_LITELLM_API_BASE and VITE_LITELLM_API_KEY in your environment.`;
+To enable AI-powered generation, configure your selected LLM runtime environment variables.`;
 }
 
 function generateFallbackEvolution(
