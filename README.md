@@ -90,6 +90,8 @@ Your Need → AI Agents → Outputs → Your Scores → Better Agents → Better
      export ADK_LITELLM_API_KEY=your-litellm-api-key
      uvicorn adk_runtime.main:app --host 0.0.0.0 --port 8000 --reload
      ```
+   - **Optional orchestration cutover:** set `VITE_ORCHESTRATION_MODE=backend` to run
+     session/run/evaluate/iterate via the ADK backend API instead of browser-local SQL.js.
 
 5. **Configure your LLM** (in the app for direct LiteLLM mode)
    - Click "Configure LLM" in the header

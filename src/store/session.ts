@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import type { Session, CreateSessionInput } from '../types';
 import * as queries from '../db/queries';
+import {
+  isBackendOrchestrationEnabled,
+  listBackendSessions,
+  getBackendSessionSnapshot,
+} from '../api/orchestration';
 
 interface SessionState {
   sessions: Session[];
@@ -24,6 +29,18 @@ export const useSessionStore = create<SessionState>((set) => ({
   error: null,
 
   loadSessions: () => {
+    if (isBackendOrchestrationEnabled()) {
+      set({ isLoading: true });
+      listBackendSessions()
+        .then((sessions) => {
+          set({ sessions, isLoading: false, error: null });
+        })
+        .catch((e) => {
+          set({ error: (e as Error).message, isLoading: false });
+        });
+      return;
+    }
+
     try {
       const sessions = queries.getAllSessions();
       set({ sessions, error: null });
@@ -33,6 +50,22 @@ export const useSessionStore = create<SessionState>((set) => ({
   },
 
   loadSession: (id: string) => {
+    if (isBackendOrchestrationEnabled()) {
+      set({ isLoading: true });
+      getBackendSessionSnapshot(id)
+        .then((snapshot) => {
+          set({
+            currentSession: snapshot.session,
+            isLoading: false,
+            error: null,
+          });
+        })
+        .catch((e) => {
+          set({ error: (e as Error).message, isLoading: false });
+        });
+      return;
+    }
+
     try {
       const session = queries.getSession(id);
       set({ currentSession: session, error: null });

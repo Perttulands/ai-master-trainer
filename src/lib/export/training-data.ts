@@ -3,7 +3,7 @@ import type { TrainingExample } from '../../types/training-signal';
 
 export interface ExportedTrainingExample {
   type: 'sft' | 'preference' | 'reward';
-  data: any;
+  data: unknown;
   metadata: {
     id: string;
     score?: number;

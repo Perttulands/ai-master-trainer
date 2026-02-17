@@ -26,6 +26,8 @@ Optional:
 
 ```bash
 export ADK_APP_NAME="training-camp-adk-runtime"
+export ADK_DEFAULT_MODEL="anthropic/claude-4-5-sonnet-aws"
+export ADK_STATE_DB=".adk-runtime/state.db"
 
 # Prefix applied to incoming model IDs before passing to ADK LiteLlm.
 # Example: with prefix openai/, "anthropic/claude-4-5-sonnet-aws"
@@ -46,3 +48,14 @@ uvicorn adk_runtime.main:app --host 0.0.0.0 --port 8000 --reload
 - `GET /health`
 - `POST /v1/chat/completions`
 
+Orchestration API (stateful):
+
+- `GET /api/sessions`
+- `GET /api/sessions/{session_id}`
+- `POST /api/sessions`
+- `POST /api/sessions/{session_id}/run`
+- `POST /api/artifacts/{artifact_id}/evaluate`
+- `POST /api/sessions/{session_id}/iterate`
+- `POST /api/sessions/{session_id}/lineages/{label}/lock`
+
+State is stored in SQLite at `ADK_STATE_DB`.

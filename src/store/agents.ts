@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import type { AgentDefinition } from '../types/agent';
 import * as queries from '../db/queries';
+import {
+  isBackendOrchestrationEnabled,
+  getBackendSessionSnapshot,
+} from '../api/orchestration';
 
 interface AgentState {
   // Map lineage ID -> agent definition
@@ -23,6 +27,22 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   error: null,
 
   loadAgentsForSession: (sessionId: string) => {
+    if (isBackendOrchestrationEnabled()) {
+      set({ isLoading: true });
+      getBackendSessionSnapshot(sessionId)
+        .then((snapshot) => {
+          set({
+            agents: snapshot.agentsByLineage,
+            isLoading: false,
+            error: null,
+          });
+        })
+        .catch((e) => {
+          set({ error: (e as Error).message, isLoading: false });
+        });
+      return;
+    }
+
     try {
       set({ isLoading: true });
       // Load agents from database

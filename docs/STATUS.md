@@ -16,6 +16,11 @@ VITE_LLM_RUNTIME=adk
 VITE_ADK_RUNTIME_BASE=http://localhost:8000
 ```
 
+Optional orchestration mode:
+```bash
+VITE_ORCHESTRATION_MODE=backend
+```
+
 **Everything is real:**
 - Agent execution via LLM
 - Evolution pipeline (reward analysis, credit assignment, planning, evolution)
@@ -38,6 +43,7 @@ VITE_ADK_RUNTIME_BASE=http://localhost:8000
 | UI | Error states displayed instead of "No output yet" |
 | Architecture | Removed deprecated duplicate evolver and unused generator module |
 | Runtime | Added ADK backend runtime mode (`backend/adk_runtime`) with OpenAI-compatible endpoint |
+| Orchestration | Added backend session/run/evaluate/iterate API and frontend backend-mode adapter |
 
 ## Known Issues
 

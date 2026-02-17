@@ -13,6 +13,16 @@ import {
 import { runEvolutionPipeline } from "../services/evolution-pipeline";
 import { generateId } from "../utils/id";
 import {
+  isBackendOrchestrationEnabled,
+  getBackendSessionSnapshot,
+  setBackendLineageLock,
+  evaluateBackendArtifact,
+  iterateBackendSession,
+  runBackendLineage,
+} from "../api/orchestration";
+import { useAgentStore } from "./agents";
+import { useSessionStore } from "./session";
+import {
   recordAgentCreated,
   recordArtifactScored,
   recordLineageLocked,
@@ -103,13 +113,52 @@ interface LineageState {
 
 export type { RegenerateWithAgentsOptions };
 
-export const useLineageStore = create<LineageState>((set, get) => ({
+export const useLineageStore = create<LineageState>((set, get) => {
+  const applyBackendSnapshot = (
+    snapshot: Awaited<ReturnType<typeof getBackendSessionSnapshot>>
+  ) => {
+    useSessionStore.setState((state) => ({
+      sessions: state.sessions.some((s) => s.id === snapshot.session.id)
+        ? state.sessions.map((s) =>
+            s.id === snapshot.session.id ? snapshot.session : s
+          )
+        : [snapshot.session, ...state.sessions],
+      currentSession: snapshot.session,
+    }));
+
+    useAgentStore.setState({
+      agents: snapshot.agentsByLineage,
+      isLoading: false,
+      error: null,
+    });
+
+    set({
+      lineages: snapshot.lineages,
+      isLoading: false,
+      isRegenerating: false,
+      error: null,
+    });
+  };
+
+  return {
   lineages: [],
   isLoading: false,
   isRegenerating: false,
   error: null,
 
   loadLineages: (sessionId: string) => {
+    if (isBackendOrchestrationEnabled()) {
+      set({ isLoading: true });
+      getBackendSessionSnapshot(sessionId)
+        .then((snapshot) => {
+          applyBackendSnapshot(snapshot);
+        })
+        .catch((e) => {
+          set({ error: (e as Error).message, isLoading: false });
+        });
+      return;
+    }
+
     try {
       set({ isLoading: true });
       const lineages = queries.getLineagesBySession(sessionId);
@@ -332,6 +381,25 @@ export const useLineageStore = create<LineageState>((set, get) => ({
     if (!lineage) return;
 
     const newLockedState = !lineage.isLocked;
+
+    if (isBackendOrchestrationEnabled()) {
+      set((state) => ({
+        lineages: state.lineages.map((l) =>
+          l.id === lineageId ? { ...l, isLocked: newLockedState } : l
+        ),
+      }));
+
+      setBackendLineageLock(lineage.sessionId, lineage.label, newLockedState)
+        .then(() => getBackendSessionSnapshot(lineage.sessionId))
+        .then((snapshot) => {
+          applyBackendSnapshot(snapshot);
+        })
+        .catch((e) => {
+          set({ error: (e as Error).message });
+        });
+      return;
+    }
+
     queries.updateLineage(lineageId, { isLocked: newLockedState });
     set((state) => ({
       lineages: state.lineages.map((l) =>
@@ -359,6 +427,35 @@ export const useLineageStore = create<LineageState>((set, get) => ({
   setScore: (lineageId: string, score: number) => {
     const lineage = get().lineages.find((l) => l.id === lineageId);
     if (!lineage?.currentArtifact) return;
+
+    if (isBackendOrchestrationEnabled()) {
+      const optimisticEvaluation = lineage.currentEvaluation
+        ? { ...lineage.currentEvaluation, score }
+        : {
+            id: generateId(),
+            artifactId: lineage.currentArtifact.id,
+            score,
+            comment: null,
+            createdAt: Date.now(),
+          };
+
+      set((state) => ({
+        lineages: state.lineages.map((l) =>
+          l.id === lineageId
+            ? { ...l, currentEvaluation: optimisticEvaluation }
+            : l
+        ),
+      }));
+
+      evaluateBackendArtifact(
+        lineage.currentArtifact.id,
+        score,
+        optimisticEvaluation.comment ?? undefined
+      ).catch((e) => {
+        set({ error: (e as Error).message });
+      });
+      return;
+    }
 
     if (lineage.currentEvaluation) {
       queries.updateEvaluation(lineage.currentEvaluation.id, { score });
@@ -409,7 +506,37 @@ export const useLineageStore = create<LineageState>((set, get) => ({
 
   setComment: (lineageId: string, comment: string) => {
     const lineage = get().lineages.find((l) => l.id === lineageId);
-    if (!lineage?.currentEvaluation) return;
+    if (!lineage?.currentArtifact) return;
+
+    if (isBackendOrchestrationEnabled()) {
+      const score = lineage.currentEvaluation?.score ?? 5;
+      const optimisticEvaluation = lineage.currentEvaluation
+        ? { ...lineage.currentEvaluation, comment }
+        : {
+            id: generateId(),
+            artifactId: lineage.currentArtifact.id,
+            score,
+            comment,
+            createdAt: Date.now(),
+          };
+
+      set((state) => ({
+        lineages: state.lineages.map((l) =>
+          l.id === lineageId
+            ? { ...l, currentEvaluation: optimisticEvaluation }
+            : l
+        ),
+      }));
+
+      evaluateBackendArtifact(lineage.currentArtifact.id, score, comment).catch(
+        (e) => {
+          set({ error: (e as Error).message });
+        }
+      );
+      return;
+    }
+
+    if (!lineage.currentEvaluation) return;
 
     queries.updateEvaluation(lineage.currentEvaluation.id, { comment });
     set((state) => ({
@@ -645,6 +772,21 @@ export const useLineageStore = create<LineageState>((set, get) => ({
   },
 
   regenerateWithFullPipeline: async (sessionId, need, getAgentForLineage, progressEmitter) => {
+    if (isBackendOrchestrationEnabled()) {
+      const unlockedLineages = get().getUnlockedLineages();
+      if (unlockedLineages.length === 0) return;
+
+      set({ isRegenerating: true, error: null });
+      try {
+        const { snapshot } = await iterateBackendSession(sessionId);
+        applyBackendSnapshot(snapshot);
+        set({ isRegenerating: false });
+      } catch (e) {
+        set({ error: (e as Error).message, isRegenerating: false });
+      }
+      return;
+    }
+
     const unlockedLineages = get().getUnlockedLineages();
     if (unlockedLineages.length === 0) return;
 
@@ -802,6 +944,27 @@ export const useLineageStore = create<LineageState>((set, get) => ({
   // ============ Run Single Lineage (Training mode) ============
 
   runLineage: async (lineageId, need, getAgentForLineage) => {
+    if (isBackendOrchestrationEnabled()) {
+      const lineage = get().lineages.find((l) => l.id === lineageId);
+      if (!lineage) return;
+
+      const session = useSessionStore.getState().currentSession;
+      const input = session?.inputPrompt?.trim()
+        ? session.inputPrompt
+        : generateDefaultTestInput(need, session?.inputPrompt).content;
+
+      set({ isRegenerating: true });
+      try {
+        await runBackendLineage(lineage.sessionId, lineage.label, input);
+        const snapshot = await getBackendSessionSnapshot(lineage.sessionId);
+        applyBackendSnapshot(snapshot);
+        set({ isRegenerating: false });
+      } catch (e) {
+        set({ error: (e as Error).message, isRegenerating: false });
+      }
+      return;
+    }
+
     const lineage = get().lineages.find((l) => l.id === lineageId);
     if (!lineage) return;
 
@@ -869,4 +1032,5 @@ export const useLineageStore = create<LineageState>((set, get) => ({
       set({ error: (e as Error).message, isRegenerating: false });
     }
   },
-}));
+  };
+});

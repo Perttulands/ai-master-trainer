@@ -46,6 +46,12 @@ Progress in this branch:
 - Keep append-only training events for replay/export.
 - Expose explicit API endpoints for session/run/evaluate/iterate.
 
+Progress in this branch:
+- Added backend orchestration API endpoints in `backend/adk_runtime/adk_runtime/main.py`.
+- Added persistent SQLite backend state in `backend/adk_runtime/adk_runtime/store.py`.
+- Added lock/run/evaluate/iterate endpoints for server-side training loops.
+- Added frontend orchestration adapter (`src/api/orchestration.ts`) and backend-mode store wiring.
+
 ### Phase 4: Cutover
 
 - Run parity tests against baseline flows.
@@ -59,3 +65,4 @@ Progress in this branch:
 - Env and README updated for ADK mode.
 - LLM client tests expanded with ADK runtime coverage.
 - Deprecated duplicate modules removed as part of phase 2.
+- ADK service now includes a stateful orchestration API (phase 3 foundation).

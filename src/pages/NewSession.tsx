@@ -6,10 +6,15 @@ import { Header } from '../components/layout/Header';
 import { StrategyDiscussionModal } from '../components/strategy';
 import { useSessionStore } from '../store/session';
 import { useLineageStore } from '../store/lineages';
+import { useAgentStore } from '../store/agents';
 import { useContextStore } from '../store/context';
 import { useProgressStore, createProgressEmitter } from '../store/progress';
 import { generateAgentsFromStrategies } from '../agents/agent-generator';
 import { proposeInputPrompt } from '../agents/master-trainer';
+import {
+  isBackendOrchestrationEnabled,
+  createBackendSession,
+} from '../api/orchestration';
 import type { CustomStrategy } from '../types/strategy';
 import { STAGE_LABELS } from '../types/progress';
 
@@ -123,6 +128,48 @@ export function NewSession() {
     progressEmitter.stage('generating_agents', STAGE_LABELS.generating_agents);
 
     try {
+      if (isBackendOrchestrationEnabled()) {
+        const snapshot = await createBackendSession({
+          name: name.trim(),
+          need: need.trim(),
+          constraints: constraints.trim() || undefined,
+          inputPrompt: inputPrompt.trim() || undefined,
+          initialAgentCount: strategies.length,
+          strategies: strategies.map((s) => ({
+            label: s.label,
+            name: s.name,
+            description: s.description,
+            style: s.style,
+            temperature: s.temperature,
+          })),
+        });
+
+        useSessionStore.setState((state) => ({
+          sessions: state.sessions.some((sess) => sess.id === snapshot.session.id)
+            ? state.sessions.map((sess) =>
+                sess.id === snapshot.session.id ? snapshot.session : sess
+              )
+            : [snapshot.session, ...state.sessions],
+          currentSession: snapshot.session,
+        }));
+
+        useLineageStore.setState({
+          lineages: snapshot.lineages,
+          isLoading: false,
+          error: null,
+        });
+
+        useAgentStore.setState({
+          agents: snapshot.agentsByLineage,
+          isLoading: false,
+          error: null,
+        });
+
+        completeOperation();
+        navigate(`/session/${snapshot.session.id}`);
+        return;
+      }
+
       // Create session with input prompt and agent count
       const session = createSession({
         name: name.trim(),
